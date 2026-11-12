@@ -2,12 +2,10 @@ import os
 import telebot
 from flask import Flask, request
 
-# جلب التوكن من إعدادات Vercel
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# الرد على أمر /start
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     welcome_text = (
@@ -21,12 +19,16 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_text)
 
-# تشغيل البوت واستقبال الرسائل
 @app.route('/', methods=['POST', 'GET'])
 def index():
     if request.method == 'POST':
-        update = telebot.types.Update.de_json(request.stream.read().decode("utf-8"))
-        bot.process_new_updates([update])
+        try:
+            # طريقة القراءة المتوافقة مع Vercel
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+        except Exception as e:
+            pass
         return "OK", 200
     else:
         return "Aman Fusion Bot is running!", 200
