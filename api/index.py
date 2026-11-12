@@ -1,34 +1,34 @@
 import os
 import telebot
-from flask import Flask, request
+from http.server import BaseHTTPRequestHandler
 
+# جلب التوكن
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
 
+# أمر البدء
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    welcome_text = (
-        "مرحباً بك في أمان فيوجن 🛠️ | Aman Fusion\n\n"
-        "أنا بوت خدمات شامل، يمكنني مساعدتك في:\n"
-        "📱 جلب بيانات حسابات تيك توك\n"
-        "📥 تحميل الفيديوهات بدون علامة مائية\n"
-        "🗣️ تحويل النص لصوت والعكس\n"
-        "🎵 تحميل الأغاني من الصوتيات\n\n"
-        "سيتم تفعيل هذه الخدمات قريباً!"
-    )
-    bot.reply_to(message, welcome_text)
+    bot.reply_to(message, "مرحباً بك في أمان فيوجن 🛠️ | البوت يعمل بنجاح!")
 
-@app.route('/', methods=['POST', 'GET'])
-def index():
-    if request.method == 'POST':
+# إعداد خادم Vercel الأساسي
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
         try:
-            # طريقة القراءة المتوافقة مع Vercel
-            json_string = request.get_data().decode('utf-8')
-            update = telebot.types.Update.de_json(json_string)
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            
+            update = telebot.types.Update.de_json(post_data)
             bot.process_new_updates([update])
+            
+            self.send_response(200)
+            self.end_headers()
         except Exception as e:
-            pass
-        return "OK", 200
-    else:
-        return "Aman Fusion Bot is running!", 200
+            self.send_response(500)
+            self.end_headers()
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write("Aman Fusion Bot is running perfectly!".encode('utf-8'))
