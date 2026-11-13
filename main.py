@@ -19,7 +19,7 @@ users_collection = db['users']
 
 # === قائمة الآدمن ===
 # ⚠️ مهم: ضع رقم الـ ID الخاص بك هنا بدلاً من هذا الرقم الافتراضي
-ADMIN_IDS = [123456789] 
+ADMIN_IDS = [8227136699] 
 
 # === 1. أمر البداية (تسجيل المشتركين) ===
 @bot.message_handler(commands=['start'])
