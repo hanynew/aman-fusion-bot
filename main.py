@@ -1,5 +1,6 @@
 import os
 import telebot
+import certifi  # المكتبة الجديدة لحل مشكلة الـ SSL
 from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
@@ -9,14 +10,15 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
-# === ربط قاعدة بيانات MongoDB ===
+# === ربط قاعدة بيانات MongoDB (مع حل مشكلة الحماية) ===
 MONGO_URI = os.environ.get('MONGO_URI')
-client = MongoClient(MONGO_URI)
-db = client['aman-fusion-bot'] # اسم قاعدة البيانات
-users_collection = db['users'] # جدول المستخدمين
+# تم إضافة tlsCAFile لتعريف شهادة الأمان وإصلاح خطأ Render
+client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
+db = client['aman-fusion-bot']
+users_collection = db['users']
 
 # === قائمة الآدمن ===
-# ⚠️ مهم: ضع رقم الـ ID الخاص بك في تليجرام بدلاً من 123456789
+# ⚠️ مهم: ضع رقم الـ ID الخاص بك هنا بدلاً من هذا الرقم الافتراضي
 ADMIN_IDS = [123456789] 
 
 # === 1. أمر البداية (تسجيل المشتركين) ===
@@ -26,7 +28,6 @@ def send_welcome(message):
     first_name = message.from_user.first_name
     username = message.from_user.username
     
-    # التحقق: هل المستخدم جديد؟ إذا نعم، احفظ بياناته في قاعدة البيانات
     if not users_collection.find_one({"_id": user_id}):
         users_collection.insert_one({
             "_id": user_id,
@@ -38,20 +39,16 @@ def send_welcome(message):
         
     bot.reply_to(message, f"مرحباً بك يا {first_name} في أمان فيوجن 🛠️ | البوت متصل وقاعدة البيانات تعمل بنجاح 🚀")
 
-# === 2. أمر لوحة الآدمن (خاص بك فقط) ===
+# === 2. أمر لوحة الآدمن ===
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     user_id = message.from_user.id
     
-    # التحقق مما إذا كان مرسل الأمر هو أنت (الآدمن)
     if user_id in ADMIN_IDS:
-        # جلب عدد المشتركين الكلي من قاعدة البيانات
         users_count = users_collection.count_documents({})
-        
         text = "👑 **لوحة تحكم الإدارة** 👑\n\n"
         text += f"👥 عدد المشتركين الحالي: `{users_count}`\n\n"
         text += "*(قريباً: أزرار الحظر، الإحصائيات، والإرسال للكل...)*"
-        
         bot.reply_to(message, text, parse_mode="Markdown")
     else:
         bot.reply_to(message, "⛔️ عذراً، هذه اللوحة مخصصة للإدارة فقط.")
