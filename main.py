@@ -1,16 +1,67 @@
 import os
 import telebot
 from flask import Flask, request
+from pymongo import MongoClient
+from datetime import datetime
 
+# === إعدادات البوت والاتصال ===
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
-# السر هنا: إيقاف الـ Threads لجعل البوت يرد فوراً في نفس اللحظة
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
+# === ربط قاعدة بيانات MongoDB ===
+MONGO_URI = os.environ.get('MONGO_URI')
+client = MongoClient(MONGO_URI)
+db = client['aman-fusion-bot'] # اسم قاعدة البيانات
+users_collection = db['users'] # جدول المستخدمين
+
+# === قائمة الآدمن ===
+# ⚠️ مهم: ضع رقم الـ ID الخاص بك في تليجرام بدلاً من 123456789
+ADMIN_IDS = [123456789] 
+
+# === 1. أمر البداية (تسجيل المشتركين) ===
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "مرحباً بك في أمان فيوجن 🛠️ | البوت متصل ويعمل بنجاح تام 🚀")
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name
+    username = message.from_user.username
+    
+    # التحقق: هل المستخدم جديد؟ إذا نعم، احفظ بياناته في قاعدة البيانات
+    if not users_collection.find_one({"_id": user_id}):
+        users_collection.insert_one({
+            "_id": user_id,
+            "first_name": first_name,
+            "username": username,
+            "joined_date": datetime.now(),
+            "is_banned": False
+        })
+        
+    bot.reply_to(message, f"مرحباً بك يا {first_name} في أمان فيوجن 🛠️ | البوت متصل وقاعدة البيانات تعمل بنجاح 🚀")
 
+# === 2. أمر لوحة الآدمن (خاص بك فقط) ===
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    user_id = message.from_user.id
+    
+    # التحقق مما إذا كان مرسل الأمر هو أنت (الآدمن)
+    if user_id in ADMIN_IDS:
+        # جلب عدد المشتركين الكلي من قاعدة البيانات
+        users_count = users_collection.count_documents({})
+        
+        text = "👑 **لوحة تحكم الإدارة** 👑\n\n"
+        text += f"👥 عدد المشتركين الحالي: `{users_count}`\n\n"
+        text += "*(قريباً: أزرار الحظر، الإحصائيات، والإرسال للكل...)*"
+        
+        bot.reply_to(message, text, parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "⛔️ عذراً، هذه اللوحة مخصصة للإدارة فقط.")
+
+# === 3. أمر مساعد لمعرفة الـ ID الخاص بك ===
+@bot.message_handler(commands=['myid'])
+def send_id(message):
+    bot.reply_to(message, f"الآي دي الخاص بك هو: `{message.from_user.id}`", parse_mode="Markdown")
+
+# === إعدادات سيرفر Render (Webhook) ===
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'POST':
