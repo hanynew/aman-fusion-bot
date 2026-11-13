@@ -2,3 +2,4 @@ pyTelegramBotAPI
 Flask
 gunicorn
 pymongo==4.6.1
+certifi
