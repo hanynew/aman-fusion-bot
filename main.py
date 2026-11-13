@@ -20,7 +20,7 @@ users_collection = db['users']
 
 # === قائمة الآدمن وإعدادات القناة ===
 ADMIN_IDS = [8227136699]
-CHANNEL_USERNAME = "@AmanFusion" # يوزر قناة الاشتراك الإجباري
+CHANNEL_USERNAME = "@AmanFusion"
 
 # === دالة فحص الاشتراك في القناة ===
 def is_subscribed(chat_id, user_id):
@@ -28,35 +28,7 @@ def is_subscribed(chat_id, user_id):
         status = bot.get_chat_member(chat_id, user_id).status
         return status in ['member', 'administrator', 'creator']
     except Exception:
-        # إذا لم يكن البوت مشرفاً في القناة سيتم السماح للمستخدم مؤقتاً لتجنب توقف البوت
         return True 
-
-# === 1. أمر البداية والاشتراك الإجباري ===
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    user_id = message.from_user.id
-    first_name = message.from_user.first_name or "مستخدم"
-    username = message.from_user.username
-
-    # فحص الحظر
-    user_data = users_collection.find_one({"_id": user_id})
-    if user_data and user_data.get("is_banned", False):
-        bot.reply_to(message, "⛔️ عذراً، لقد تم حظرك من استخدام هذا البوت.")
-        return
-
-    # فحص الاشتراك في القناة
-    if not is_subscribed(CHANNEL_USERNAME, user_id):
-        markup = InlineKeyboardMarkup()
-        btn_channel = InlineKeyboardButton("📢 اضغط هنا للاشتراك في القناة", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")
-        btn_check = InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_sub")
-        markup.add(btn_channel)
-        markup.add(btn_check)
-        bot.reply_to(message, f"👋 أهلاً بك يا {first_name}\n\n⚠️ عذراً، لا يمكنك استخدام البوت إلا بعد الاشتراك في قناتنا الرسمية.\n\nاشترك من الزر بالأسفل ثم اضغط (تحقق من الاشتراك) 👇", reply_markup=markup)
-        return
-
-    # إذا كان مشتركاً، يتم تسجيله
-    register_user(user_id, first_name, username)
-    bot.reply_to(message, f"مرحباً بك يا {first_name} في أمان فيوجن 🛠️ | البوت متصل ويعمل بنجاح 🚀")
 
 # === دالة مساعدة لتسجيل المستخدم ===
 def register_user(user_id, first_name, username):
@@ -76,12 +48,61 @@ def register_user(user_id, first_name, username):
         upsert=True
     )
 
-# === 2. أمر معرفة الآي دي ===
+# ==========================================
+# 🟢 قسم واجهة المستخدم (الخدمات الرئيسية) 🟢
+# ==========================================
+
+# دالة إرسال القائمة الرئيسية للخدمات
+def send_main_menu(chat_id, first_name):
+    markup = InlineKeyboardMarkup()
+    btn_profile = InlineKeyboardButton("📊 بيانات الحساب", callback_data="service_profile")
+    btn_download = InlineKeyboardButton("📥 تحميل بدون علامة مائية", callback_data="service_download")
+    btn_media = InlineKeyboardButton("🔍 البحث عن الوسائط", callback_data="service_media")
+    
+    # ترتيب الأزرار تحت بعضها
+    markup.add(btn_profile)
+    markup.add(btn_download)
+    markup.add(btn_media)
+    
+    text = f"مرحباً بك يا {first_name} في أمان فيوجن 🛠️\n\n"
+    text += "✨ **يرجى اختيار الخدمة المطلوبة من القائمة أدناه:**"
+    
+    bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
+
+# === 1. أمر البداية ===
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "مستخدم"
+    username = message.from_user.username
+
+    user_data = users_collection.find_one({"_id": user_id})
+    if user_data and user_data.get("is_banned", False):
+        bot.reply_to(message, "⛔️ عذراً، لقد تم حظرك من استخدام هذا البوت.")
+        return
+
+    if not is_subscribed(CHANNEL_USERNAME, user_id):
+        markup = InlineKeyboardMarkup()
+        btn_channel = InlineKeyboardButton("📢 اضغط هنا للاشتراك في القناة", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")
+        btn_check = InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_sub")
+        markup.add(btn_channel)
+        markup.add(btn_check)
+        bot.reply_to(message, f"👋 أهلاً بك يا {first_name}\n\n⚠️ عذراً، لا يمكنك استخدام البوت إلا بعد الاشتراك في قناتنا الرسمية.\n\nاشترك من الزر بالأسفل ثم اضغط (تحقق من الاشتراك) 👇", reply_markup=markup)
+        return
+
+    register_user(user_id, first_name, username)
+    # إذا كان مشتركاً، نعرض له قائمة الخدمات مباشرة
+    send_main_menu(message.chat.id, first_name)
+
+
+# ==========================================
+# 🔴 قسم لوحة تحكم الإدارة (الآدمن) 🔴
+# ==========================================
+
 @bot.message_handler(commands=['myid'])
 def send_id(message):
     bot.reply_to(message, f"الآي دي الخاص بك هو: <code>{message.from_user.id}</code>", parse_mode="HTML")
 
-# === 3. لوحة تحكم الآدمن ===
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id in ADMIN_IDS:
@@ -109,21 +130,39 @@ def admin_panel(message):
     else:
         bot.reply_to(message, "⛔️ عذراً، هذه اللوحة مخصصة للإدارة فقط.")
 
-# === 4. معالجة ضغطات الأزرار ===
+
+# ==========================================
+# ⚙️ معالجة جميع ضغطات الأزرار (خدمات + آدمن) ⚙️
+# ==========================================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    # زر التحقق من الاشتراك للمستخدم العادي
+    # --- أزرار الخدمات للمستخدمين ---
     if call.data == "check_sub":
         if is_subscribed(CHANNEL_USERNAME, call.from_user.id):
             bot.answer_callback_query(call.id, "✅ تم التحقق، شكراً لاشتراكك!")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             register_user(call.from_user.id, call.from_user.first_name, call.from_user.username)
-            bot.send_message(call.message.chat.id, f"مرحباً بك يا {call.from_user.first_name} في أمان فيوجن 🛠️ | تم تفعيل البوت بنجاح 🚀")
+            send_main_menu(call.message.chat.id, call.from_user.first_name)
         else:
             bot.answer_callback_query(call.id, "❌ لم تقم بالاشتراك بعد! اشترك أولاً ثم اضغط تحقق.", show_alert=True)
         return
 
-    # التحقق من أن الضغطات الأخرى للإدارة فقط
+    if call.data == "service_profile":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "📊 أرسل الآن رابط الحساب الذي تريد تحليله:")
+        return
+        
+    if call.data == "service_download":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "📥 أرسل الآن رابط الفيديو لتحميله بدون علامة مائية:")
+        return
+        
+    if call.data == "service_media":
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, "🔍 أرسل الكلمة المفتاحية للبحث عن الوسائط:")
+        return
+
+    # --- أزرار الآدمن ---
     if call.from_user.id not in ADMIN_IDS:
         bot.answer_callback_query(call.id, "⛔️ غير مصرح لك.", show_alert=True)
         return
@@ -132,34 +171,19 @@ def callback_query(call):
         bot.answer_callback_query(call.id, "جاري جلب قائمة المشتركين...")
         users = list(users_collection.find({}))
         now = datetime.now()
-
         if not users:
             bot.send_message(call.message.chat.id, "لا يوجد مشتركين مسجلين بعد.")
             return
-
-        text = "📊 <b>قائمة المشتركين (بدون أرقام جوال):</b>\n"
-        text += "🟢 نشط | 🟡 متوسط | 🔴 منقطع\n"
-        text += "〰️〰️〰️〰️〰️〰️\n"
-
+        text = "📊 <b>قائمة المشتركين (بدون أرقام جوال):</b>\n🟢 نشط | 🟡 متوسط | 🔴 منقطع\n〰️〰️〰️〰️〰️〰️\n"
         for idx, u in enumerate(users, start=1):
             last_active = u.get("last_active", u.get("joined_date", now))
             diff = now - last_active
-
-            if diff <= timedelta(days=1):
-                status = "🟢"
-            elif diff <= timedelta(days=7):
-                status = "🟡"
-            else:
-                status = "🔴"
-
+            status = "🟢" if diff <= timedelta(days=1) else "🟡" if diff <= timedelta(days=7) else "🔴"
             user_id = u["_id"]
             name = html.escape(str(u.get("first_name", "بدون اسم")))
             username = f"@{html.escape(str(u.get('username')))}" if u.get("username") else "لا يوجد يوزر"
             ban_tag = " [محظور 🚫]" if u.get("is_banned", False) else ""
-
-            text += f"{idx}. {status} <b>{name}</b>{ban_tag}\n"
-            text += f"   🆔 <code>{user_id}</code> | {username}\n"
-
+            text += f"{idx}. {status} <b>{name}</b>{ban_tag}\n   🆔 <code>{user_id}</code> | {username}\n"
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
 
     elif call.data == "banned_list":
@@ -167,14 +191,12 @@ def callback_query(call):
         if not banned_users:
             bot.answer_callback_query(call.id, "لا يوجد مستخدمين محظورين حالياً ✅", show_alert=True)
             return
-
         bot.answer_callback_query(call.id)
         text = "🚫 <b>قائمة المستخدمين المحظورين:</b>\n\n"
         for idx, u in enumerate(banned_users, start=1):
             name = html.escape(str(u.get("first_name", "بدون اسم")))
             username = f"(@{html.escape(str(u.get('username')))})" if u.get("username") else ""
             text += f"{idx}. <b>{name}</b> {username}\n   🆔 <code>{u['_id']}</code>\n"
-
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
 
     elif call.data == "ban_user":
@@ -189,10 +211,10 @@ def callback_query(call):
 
     elif call.data == "broadcast":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📢 أرسل الآن الرسالة (نص، صورة، فيديو، أو ملف) التي تريد إذاعتها للكل:\n(أو أرسل /cancel للإلغاء)")
+        msg = bot.send_message(call.message.chat.id, "📢 أرسل الآن الرسالة التي تريد إذاعتها للكل:\n(أو أرسل /cancel للإلغاء)")
         bot.register_next_step_handler(msg, process_broadcast)
 
-# === 5. تنفيذ الحظر، رفع الحظر، والإذاعة الفعّالة ===
+# === دوال تنفيذ الحظر والإذاعة للآدمن ===
 def process_ban(message):
     if message.text and message.text.strip() == "/cancel":
         bot.reply_to(message, "تم إلغاء العملية.")
@@ -228,23 +250,18 @@ def process_broadcast(message):
     if message.text and message.text.strip() == "/cancel":
         bot.reply_to(message, "تم إلغاء الإذاعة.")
         return
-    
-    bot.reply_to(message, "⏳ جاري إرسال الإذاعة لجميع المشتركين... يرجى الانتظار.")
+    bot.reply_to(message, "⏳ جاري الإرسال...")
     users = users_collection.find({"is_banned": False})
-    
-    success = 0
-    failed = 0
+    success, failed = 0, 0
     for u in users:
         try:
-            # استخدام copy_message يسمح بإرسال النصوص والصور والفيديوهات بنفس التنسيق!
             bot.copy_message(u["_id"], message.chat.id, message.message_id)
             success += 1
         except Exception:
             failed += 1
-            
-    bot.reply_to(message, f"📢 <b>تم الانتهاء من الإذاعة بنجاح!</b>\n\n✅ وصلت إلى: {success} مشترك\n❌ فشلت مع: {failed} مشترك (ربما حظروا البوت)", parse_mode="HTML")
+    bot.reply_to(message, f"📢 <b>تم الانتهاء!</b>\n✅ وصلت إلى: {success}\n❌ فشلت مع: {failed}", parse_mode="HTML")
 
-# === إعدادات سيرفر Render (Webhook) ===
+# === إعدادات Webhook ===
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'POST':
