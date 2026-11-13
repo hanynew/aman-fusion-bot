@@ -12,18 +12,15 @@ def send_welcome(message):
 
 @app.route('/', methods=['POST'])
 def webhook():
-    # استخدام الطريقة الأضمن لقراءة البيانات
-    json_data = request.get_json(silent=True)
-    if json_data:
-        update = telebot.types.Update.de_json(json_data)
-        bot.process_new_updates([update])
-        return 'OK', 200
-    return 'Error', 400
+    # قراءة البيانات كنص (String) كما تتطلبها مكتبة تليجرام لتعمل بدون أخطاء
+    json_string = request.get_data().decode('utf-8')
+    update = telebot.types.Update.de_json(json_string)
+    bot.process_new_updates([update])
+    return 'OK', 200
 
 @app.route('/')
 def index():
-    return "Aman Fusion Bot is running smoothly on Render!"
+    return "Aman Fusion Bot is running!"
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=int(os.environ.get('PORT', 10000)))
-
