@@ -2,6 +2,7 @@ import os
 import html
 import telebot
 import certifi
+import requests
 from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime, timedelta
@@ -52,14 +53,12 @@ def register_user(user_id, first_name, username):
 # 🟢 قسم واجهة المستخدم (الخدمات الرئيسية) 🟢
 # ==========================================
 
-# دالة إرسال القائمة الرئيسية للخدمات
 def send_main_menu(chat_id, first_name):
     markup = InlineKeyboardMarkup()
     btn_profile = InlineKeyboardButton("📊 بيانات الحساب", callback_data="service_profile")
     btn_download = InlineKeyboardButton("📥 تحميل بدون علامة مائية", callback_data="service_download")
     btn_media = InlineKeyboardButton("🔍 البحث عن الوسائط", callback_data="service_media")
     
-    # ترتيب الأزرار تحت بعضها
     markup.add(btn_profile)
     markup.add(btn_download)
     markup.add(btn_media)
@@ -69,7 +68,6 @@ def send_main_menu(chat_id, first_name):
     
     bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
 
-# === 1. أمر البداية ===
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
@@ -91,9 +89,7 @@ def send_welcome(message):
         return
 
     register_user(user_id, first_name, username)
-    # إذا كان مشتركاً، نعرض له قائمة الخدمات مباشرة
     send_main_menu(message.chat.id, first_name)
-
 
 # ==========================================
 # 🔴 قسم لوحة تحكم الإدارة (الآدمن) 🔴
@@ -130,13 +126,12 @@ def admin_panel(message):
     else:
         bot.reply_to(message, "⛔️ عذراً، هذه اللوحة مخصصة للإدارة فقط.")
 
-
 # ==========================================
 # ⚙️ معالجة جميع ضغطات الأزرار (خدمات + آدمن) ⚙️
 # ==========================================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    # --- أزرار الخدمات للمستخدمين ---
+    # --- أزرار الخدمات ---
     if call.data == "check_sub":
         if is_subscribed(CHANNEL_USERNAME, call.from_user.id):
             bot.answer_callback_query(call.id, "✅ تم التحقق، شكراً لاشتراكك!")
@@ -149,17 +144,20 @@ def callback_query(call):
 
     if call.data == "service_profile":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "📊 أرسل الآن رابط الحساب الذي تريد تحليله:")
+        msg = bot.send_message(call.message.chat.id, "📊 أرسل الآن رابط الحساب الذي تريد تحليله:\n(أو أرسل /cancel للإلغاء)")
+        bot.register_next_step_handler(msg, process_profile_link)
         return
         
     if call.data == "service_download":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "📥 أرسل الآن رابط الفيديو لتحميله بدون علامة مائية:")
+        msg = bot.send_message(call.message.chat.id, "📥 أرسل الآن رابط الفيديو (تيك توك، انستجرام، الخ) لتحميله بدون علامة مائية:\n(أو أرسل /cancel للإلغاء)")
+        bot.register_next_step_handler(msg, process_download_link)
         return
         
     if call.data == "service_media":
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, "🔍 أرسل الكلمة المفتاحية للبحث عن الوسائط:")
+        msg = bot.send_message(call.message.chat.id, "🔍 أرسل الكلمة المفتاحية للبحث عن الوسائط:\n(أو أرسل /cancel للإلغاء)")
+        bot.register_next_step_handler(msg, process_media_search)
         return
 
     # --- أزرار الآدمن ---
@@ -171,9 +169,11 @@ def callback_query(call):
         bot.answer_callback_query(call.id, "جاري جلب قائمة المشتركين...")
         users = list(users_collection.find({}))
         now = datetime.now()
+
         if not users:
             bot.send_message(call.message.chat.id, "لا يوجد مشتركين مسجلين بعد.")
             return
+
         text = "📊 <b>قائمة المشتركين (بدون أرقام جوال):</b>\n🟢 نشط | 🟡 متوسط | 🔴 منقطع\n〰️〰️〰️〰️〰️〰️\n"
         for idx, u in enumerate(users, start=1):
             last_active = u.get("last_active", u.get("joined_date", now))
@@ -184,6 +184,7 @@ def callback_query(call):
             username = f"@{html.escape(str(u.get('username')))}" if u.get("username") else "لا يوجد يوزر"
             ban_tag = " [محظور 🚫]" if u.get("is_banned", False) else ""
             text += f"{idx}. {status} <b>{name}</b>{ban_tag}\n   🆔 <code>{user_id}</code> | {username}\n"
+
         bot.send_message(call.message.chat.id, text, parse_mode="HTML")
 
     elif call.data == "banned_list":
@@ -211,10 +212,61 @@ def callback_query(call):
 
     elif call.data == "broadcast":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📢 أرسل الآن الرسالة التي تريد إذاعتها للكل:\n(أو أرسل /cancel للإلغاء)")
+        msg = bot.send_message(call.message.chat.id, "📢 أرسل الآن الرسالة (نص، صورة، فيديو، أو ملف) التي تريد إذاعتها للكل:\n(أو أرسل /cancel للإلغاء)")
         bot.register_next_step_handler(msg, process_broadcast)
 
-# === دوال تنفيذ الحظر والإذاعة للآدمن ===
+# ==========================================
+# 🛠️ دوال معالجة الخدمات (الرد على المستخدم) 🛠️
+# ==========================================
+
+def process_profile_link(message):
+    if message.text and message.text.strip() == '/cancel':
+        bot.reply_to(message, "تم الإلغاء. يمكنك اختيار خدمة أخرى من القائمة /start")
+        return
+    
+    input_text = message.text.strip()
+    msg = bot.reply_to(message, "⏳ جاري استخراج بيانات الحساب... يرجى الانتظار.")
+    
+    try:
+        username = input_text
+        if "tiktok.com" in username:
+            if "@" in username:
+                username = username.split("@")[1].split("?")[0].split("/")[0]
+            else:
+                bot.edit_message_text("⚠️ عذراً، يرجى إرسال يوزر الحساب أو رابط مباشر للحساب.", chat_id=message.chat.id, message_id=msg.message_id)
+                return
+                
+        username = username.replace("@", "")
+
+        text = f"📊 <b>بيانات حساب تيك توك</b> 📊\n\n"
+        text += f"👤 <b>الاسم:</b> (جاري الربط)\n"
+        text += f"🔗 <b>اليوزر:</b> <code>@{username}</code>\n"
+        text += f"👥 <b>المتابعين:</b> (جاري الربط)\n"
+        text += f"👣 <b>يتابع:</b> (جاري الربط)\n"
+        text += f"❤️ <b>الإعجابات:</b> (جاري الربط)\n\n"
+        text += f"📝 <b>البايو:</b>\n(جاري الربط)\n"
+        
+        bot.edit_message_text(text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+        
+    except Exception:
+        bot.edit_message_text("⚠️ حدث خطأ غير متوقع. يرجى التأكد من كتابة اليوزر بشكل صحيح.", chat_id=message.chat.id, message_id=msg.message_id)
+
+def process_download_link(message):
+    if message.text == '/cancel':
+        bot.reply_to(message, "تم الإلغاء. يمكنك اختيار خدمة أخرى من القائمة /start")
+        return
+    bot.reply_to(message, f"⏳ جاري معالجة الرابط وجلب الفيديو بدون علامة مائية...\n\n(هنا سنقوم بربط أداة التحميل الفعلية)")
+
+def process_media_search(message):
+    if message.text == '/cancel':
+        bot.reply_to(message, "تم الإلغاء. يمكنك اختيار خدمة أخرى من القائمة /start")
+        return
+    bot.reply_to(message, f"⏳ جاري البحث عن الوسائط...\n\n(هنا سنقوم بربط محرك البحث)")
+
+# ==========================================
+# 🔐 دوال تنفيذ الحظر والإذاعة للآدمن 🔐
+# ==========================================
+
 def process_ban(message):
     if message.text and message.text.strip() == "/cancel":
         bot.reply_to(message, "تم إلغاء العملية.")
@@ -250,18 +302,25 @@ def process_broadcast(message):
     if message.text and message.text.strip() == "/cancel":
         bot.reply_to(message, "تم إلغاء الإذاعة.")
         return
-    bot.reply_to(message, "⏳ جاري الإرسال...")
+    
+    bot.reply_to(message, "⏳ جاري إرسال الإذاعة لجميع المشتركين... يرجى الانتظار.")
     users = users_collection.find({"is_banned": False})
-    success, failed = 0, 0
+    
+    success = 0
+    failed = 0
     for u in users:
         try:
             bot.copy_message(u["_id"], message.chat.id, message.message_id)
             success += 1
         except Exception:
             failed += 1
-    bot.reply_to(message, f"📢 <b>تم الانتهاء!</b>\n✅ وصلت إلى: {success}\n❌ فشلت مع: {failed}", parse_mode="HTML")
+            
+    bot.reply_to(message, f"📢 <b>تم الانتهاء من الإذاعة بنجاح!</b>\n\n✅ وصلت إلى: {success} مشترك\n❌ فشلت مع: {failed} مشترك (ربما حظروا البوت)", parse_mode="HTML")
 
-# === إعدادات Webhook ===
+# ==========================================
+# 🌐 إعدادات سيرفر Render (Webhook) 🌐
+# ==========================================
+
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
     if request.method == 'POST':
