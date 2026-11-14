@@ -14,11 +14,10 @@ TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
 
-# استخراج يوزر البوت ديناميكياً
 try:
     BOT_USERNAME = f"@{bot.get_me().username}"
 except:
-    BOT_USERNAME = "@AmanFusionBot" # قيمة احتياطية
+    BOT_USERNAME = "@AmanFusionBot"
 
 # === ربط قاعدة بيانات MongoDB ===
 MONGO_URI = os.environ.get('MONGO_URI')
@@ -61,7 +60,6 @@ def register_user(user_id, first_name, username):
 def format_date(timestamp):
     if not timestamp or timestamp == 0 or str(timestamp) == "0": return "غير متوفر"
     try:
-        # تحويل الـ timestamp إذا كان بالميلي ثانية
         ts = int(timestamp)
         if len(str(ts)) > 10: ts = ts / 1000
         return datetime.fromtimestamp(ts).strftime('%H:%M:%S %d-%m-%Y')
@@ -158,21 +156,21 @@ def callback_query(call):
         bot.register_next_step_handler(msg, process_profile_link)
         return
 
-    # الأزرار التفاعلية للبروفايل
+    # الأزرار التفاعلية للبروفايل (نستخدم username الآن لضمان توافق جميع استعلامات الـ API)
     if call.data.startswith("info_"):
         parts = call.data.split("_", 2)
         action = parts[1]
-        target_uid = parts[2] # نستخدم uid بدلا من username لضمان دقة الاستعلام
+        target_username = parts[2]
 
         if action == "country":
             bot.answer_callback_query(call.id)
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من خوادم تيك توك بناءً على تسجيل الحساب.", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من خوادم تيك توك بناءً على تسجيل الحساب لـ @{target_username}.", parse_mode="Markdown")
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
             try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"user_id": target_uid}).json()
+                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
                 if res.get("code") == 0:
                     followers = res["data"]["stats"].get("followerCount", 0)
                     bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
@@ -182,7 +180,7 @@ def callback_query(call):
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
             try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"user_id": target_uid}).json()
+                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
                 if res.get("code") == 0:
                     bio = res["data"]["user"].get("signature", "")
                     emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
@@ -197,7 +195,7 @@ def callback_query(call):
             msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
             url = f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}"
             try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"user_id": target_uid, "count": 10}).json()
+                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username, "count": 10}).json()
                 if res.get("code") == 0 and res.get("data") and "userList" in res["data"]:
                     usersList = res["data"]["userList"]
                     if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
@@ -208,23 +206,24 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # دالة البحث عن الستوريات باستخدام الـ ID وليس اليوزر لضمان الدقة
+        # دالة البحث عن الستوريات (تم إصلاح تمرير المتغير ليصبح unique_id)
         elif action == "story":
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوريات...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
             try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"user_id": target_uid}).json()
+                # الاستعلام يتطلب unique_id للستوري
+                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
                 if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                     stories = res["data"]["itemList"]
                     story_count = len(stories)
                     
                     text = f"<b>تم العثور على ستوريات لهذا الشخص</b>\n\n"
-                    text += f"المعرف: <code>{target_uid}</code>\n"
+                    text += f"المستخدم: @{target_username}\n"
                     text += f"عدد الستوريات: {story_count}"
                     
                     markup = InlineKeyboardMarkup(row_width=3)
-                    buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_uid}") for i in range(story_count)]
+                    buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_username}") for i in range(story_count)]
                     markup.add(*buttons)
                     
                     bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=markup)
@@ -238,12 +237,12 @@ def callback_query(call):
     if call.data.startswith("getstory_"):
         parts = call.data.split("_", 2)
         story_index = int(parts[1])
-        target_uid = parts[2]
+        target_username = parts[2]
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
         url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
         try:
-            res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"user_id": target_uid}).json()
+            res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
             if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                 stories = res["data"]["itemList"]
                 if story_index < len(stories):
@@ -298,21 +297,25 @@ def process_profile_link(message):
         if res.get("code") == 0 and res.get("data"):
             user = res["data"].get("user", {})
             stats = res["data"].get("stats", {})
+            userInfo = user.get("userInfo", {}) # في بعض الاستجابات تكون ضمن userInfo
 
-            # معالجة المنطقة للحصول على الدولة
-            region_code = user.get("region") or user.get("country") or user.get("iso3166") or ""
+            # مسح مزدوج للمنطقة لضمان جلب الدولة
+            region_code = user.get("region") or userInfo.get("region") or user.get("country") or user.get("iso3166") or ""
             country_name, country_flag = get_country_info(region_code)
 
             uid = user.get("id", "غير متوفر")
             nickname = user.get("nickname", "غير متوفر")
-            followers = stats.get("followerCount", 0)
-            following = stats.get("followingCount", 0)
-            friends = stats.get("friendCount", 0)
-            hearts = stats.get("heartCount", 0)
-            videos = stats.get("videoCount", 0)
             
-            create_time = format_date(user.get("createTime"))
-            modify_time = format_date(user.get("nickNameModifyTime"))
+            # مسح مزدوج للأصدقاء والمتابعين
+            followers = stats.get("followerCount") or user.get("followerCount", 0)
+            following = stats.get("followingCount") or user.get("followingCount", 0)
+            friends = stats.get("friendCount") or user.get("friendCount", 0)
+            hearts = stats.get("heartCount") or user.get("heartCount", 0)
+            videos = stats.get("videoCount") or user.get("videoCount", 0)
+            
+            # مسح مزدوج لتواريخ التعديل
+            create_time = format_date(user.get("createTime") or userInfo.get("createTime"))
+            modify_time = format_date(user.get("nickNameModifyTime") or userInfo.get("nickNameModifyTime"))
             
             language = user.get("language", "English")
             is_verified = get_yes_no(user.get("verified", False))
@@ -345,7 +348,7 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # تنسيق النص وإضافة اليوزر الديناميكي للبوت
+            # تنسيق النص
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
@@ -386,14 +389,14 @@ def process_profile_link(message):
             text += f"البايو: {bio}\n"
             text += f"الرابط في البايو: {bio_link}"
 
-            # تمرير uid للأزرار لضمان عملها بشكل صحيح
+            # تمرير اليوزر (username) لضمان توافق أزرار الخدمات والستوري
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{uid}"))
-            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{uid}"), 
-                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{uid}"))
-            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{uid}"))
-            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{uid}"), 
-                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{uid}"))
+            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}"))
+            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}"), 
+                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}"))
+            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}"))
+            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}"), 
+                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}"))
 
             bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
