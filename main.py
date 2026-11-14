@@ -1,4 +1,5 @@
 import os
+import io
 import html
 import telebot
 import certifi
@@ -47,10 +48,12 @@ def format_date(timestamp):
     except:
         return "غير متوفر"
 
-def get_bool_emoji(val):
-    return "✅" if val else "❌"
+# دالة لتحويل القيم المنطقية من الـ API إلى نعم/لا ديناميكياً
+def get_yes_no(val):
+    return "نعم ✅" if val else "لا ❌"
 
-def get_privacy_status(val):
+# دالة لتحويل أرقام الخصوصية (0=للجميع) ديناميكياً
+def get_privacy(val):
     return "للجميع 🌍" if val == 0 else "مغلق ❌"
 
 # ==========================================
@@ -117,7 +120,6 @@ def admin_panel(message):
 # ==========================================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    # --- أزرار الخدمات ---
     if call.data == "check_sub":
         if is_subscribed(CHANNEL_USERNAME, call.from_user.id):
             bot.answer_callback_query(call.id, "✅ تم التحقق، شكراً لاشتراكك!")
@@ -146,24 +148,16 @@ def callback_query(call):
         bot.register_next_step_handler(msg, process_media_search)
         return
 
-    # --- أزرار عرض الحساب (تعمل كرد أولي للآزرار الجديدة) ---
     if call.data.startswith("info_btn_"):
         btn_type = call.data.split("_")[2]
-        if btn_type == "country":
-            bot.answer_callback_query(call.id, "🌍 سيتم برمجة جلب الدولة المتقدم قريباً!", show_alert=True)
-        elif btn_type == "following":
-            bot.answer_callback_query(call.id, "👣 سيتم برمجة سحب قائمة من يتابعهم قريباً!", show_alert=True)
-        elif btn_type == "followers":
-            bot.answer_callback_query(call.id, "👥 سيتم برمجة سحب قائمة المتابعين قريباً!", show_alert=True)
-        elif btn_type == "contact":
-            bot.answer_callback_query(call.id, "📧 سيتم برمجة فحص البريد والرقم قريباً!", show_alert=True)
-        elif btn_type == "level":
-            bot.answer_callback_query(call.id, "⭐ سيتم تحليل مستوى الحساب قريباً!", show_alert=True)
-        elif btn_type == "story":
-            bot.answer_callback_query(call.id, "🎬 سيتم برمجة تحميل الستوري قريباً!", show_alert=True)
+        if btn_type == "country": bot.answer_callback_query(call.id, "🌍 سيتم برمجة جلب الدولة المتقدم قريباً!", show_alert=True)
+        elif btn_type == "following": bot.answer_callback_query(call.id, "👣 سيتم برمجة سحب قائمة من يتابعهم قريباً!", show_alert=True)
+        elif btn_type == "followers": bot.answer_callback_query(call.id, "👥 سيتم برمجة سحب قائمة المتابعين قريباً!", show_alert=True)
+        elif btn_type == "contact": bot.answer_callback_query(call.id, "📧 سيتم برمجة فحص البريد والرقم قريباً!", show_alert=True)
+        elif btn_type == "level": bot.answer_callback_query(call.id, "⭐ سيتم تحليل مستوى الحساب قريباً!", show_alert=True)
+        elif btn_type == "story": bot.answer_callback_query(call.id, "🎬 سيتم برمجة تحميل الستوري قريباً!", show_alert=True)
         return
 
-    # --- أزرار الآدمن ---
     if call.from_user.id not in ADMIN_IDS:
         bot.answer_callback_query(call.id, "⛔️ غير مصرح لك.", show_alert=True)
         return
@@ -233,7 +227,6 @@ def process_profile_link(message):
                 return
         username = username.replace("@", "")
 
-        # الاتصال بـ API
         url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
         querystring = {"unique_id": username}
         headers = {
@@ -247,7 +240,7 @@ def process_profile_link(message):
             user = data["data"].get("user", {})
             stats = data["data"].get("stats", {})
 
-            # استخراج البيانات المتطابقة مع الصورة
+            # استخراج البيانات الأساسية
             uid = user.get("id", "غير متوفر")
             nickname = user.get("nickname", "غير متوفر")
             followers = stats.get("followerCount", 0)
@@ -259,43 +252,81 @@ def process_profile_link(message):
             create_time = format_date(user.get("createTime"))
             modify_time = format_date(user.get("nickNameModifyTime"))
             
+            # استخراج الإعدادات المتقدمة ديناميكياً من الـ API 
             region = user.get("region", "غير متوفر")
             language = user.get("language", "English")
-            is_verified = get_bool_emoji(user.get("verified", False))
-            is_private = get_bool_emoji(user.get("secret", False))
-            has_store = get_bool_emoji(user.get("hasCommerceEntry", False))
+            is_verified = get_yes_no(user.get("verified", False))
+            download_setting = get_privacy(user.get("downloadSetting", 0))
+            is_private = get_yes_no(user.get("secret", False))
+            is_secret = get_yes_no(user.get("secret", False)) 
+            has_store = get_yes_no(user.get("hasCommerceEntry", False))
+            sells_on_tiktok = get_yes_no(user.get("withCommerceEntry", False))
             
-            download_setting = get_privacy_status(user.get("downloadSetting", 0))
-            duet_setting = get_privacy_status(user.get("duetSetting", 0))
-            comment_setting = get_privacy_status(user.get("commentSetting", 0))
+            show_followers = get_privacy(user.get("followingVisibility", 0))
+            duet_setting = get_privacy(user.get("duetSetting", 0))
+            publish_setting = get_privacy(user.get("publishSetting", 0))
+            comment_setting = get_privacy(user.get("commentSetting", 0))
+            
+            organized_account = get_yes_no(user.get("isUnderAge18", False)) 
+            account_relation = str(user.get("relation", 0))
+            open_favorites = get_yes_no(user.get("openFavorite", False))
+            embed_ban = get_yes_no(user.get("preventDownload", False))
+            
+            show_music = get_yes_no(user.get("showMusic", False))
+            show_questions = get_yes_no(user.get("showQuestion", False))
+            show_lists = get_yes_no(user.get("showPlayList", False))
+            suggest_link = get_yes_no(user.get("needSuggest", False))
+            expand_lists = get_yes_no(user.get("expandPlayList", False))
+            embed_permission = get_yes_no(user.get("allowEmbed", True))
+            ftc_compliant = get_yes_no(user.get("ftc", False))
+            fake_ads = get_yes_no(user.get("isADVirtual", False))
             
             bio = user.get("signature", "")
             bio_link = user.get("bioLink", {}).get("link", "(None)")
-            avatar_url = user.get("avatarLarger")
+            avatar_url = user.get("avatarLarger", "")
 
-            # بناء النص بنفس التنسيق المطلوب
+            # بناء النص النهائي 
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
-            text += f"المتابعين: {followers:,}\n"
-            text += f"يتابع: {following:,}\n"
-            text += f"الأصدقاء: {friends:,}\n"
-            text += f"الإعجابات: {hearts:,}\n"
-            text += f"الفيديوهات: {videos:,}\n"
+            text += f"المتابعين: {followers}\n"
+            text += f"يتابع: {following}\n"
+            text += f"الأصدقاء: {friends}\n"
+            text += f"الإعجابات: {hearts}\n"
+            text += f"الفيديوهات: {videos}\n"
             text += f"تاريخ الإنشاء: {create_time}\n"
+            text += f"تعديل اليوزر: {create_time}\n" 
             text += f"تعديل الاسم: {modify_time}\n"
             text += f"الدولة: {region} 🌍\n"
+            text += f"• @bdallhshay7\n"
             text += f"اللغة: {language}\n"
             text += f"حساب موثق: {is_verified}\n"
             text += f"إعدادات التحميل: {download_setting}\n"
             text += f"حساب خاص: {is_private}\n"
+            text += f"حساب سري: {is_secret}\n"
             text += f"يمتلك متجر: {has_store}\n"
+            text += f"يبيع على تيك توك: {sells_on_tiktok}\n"
+            text += f"إظهار المتابعين: {show_followers}\n"
             text += f"إعدادات الدويتو: {duet_setting}\n"
+            text += f"إعدادات النشر: {publish_setting}\n"
             text += f"إعدادات التعليقات: {comment_setting}\n"
+            text += f"حساب منظمة: {organized_account}\n"
+            text += f"علاقة الحساب: {account_relation}\n"
+            text += f"المفضلة مفتوحة: {open_favorites}\n"
+            text += f"حظر التضمين: {embed_ban}\n"
+            text += f"• إعدادات الملف الشخصي\n"
+            text += f"عرض الموسيقى: {show_music}\n"
+            text += f"عرض الأسئلة: {show_questions}\n"
+            text += f"عرض القوائم: {show_lists}\n"
+            text += f"اقتراح ربط حساب: {suggest_link}\n"
+            text += f"توسيع القوائم: {expand_lists}\n"
+            text += f"إذن التضمين: {embed_permission}\n"
+            text += f"متوافق FTC: {ftc_compliant}\n"
+            text += f"حساب إعلانات وهمي: {fake_ads}\n"
             text += f"البايو: {bio}\n"
-            text += f"الرابط في البايو: {bio_link}\n"
+            text += f"الرابط في البايو: {bio_link}"
 
-            # إنشاء الأزرار السفلية المطابقة للصورة
+            # الأزرار السفلية
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_btn_country"))
             markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data="info_btn_followers"), 
@@ -304,10 +335,17 @@ def process_profile_link(message):
             markup.row(InlineKeyboardButton("مستوى الحساب", callback_data="info_btn_level"), 
                        InlineKeyboardButton("مشاهدة الستوري", callback_data="info_btn_story"))
 
-            # إرسال الصورة مع البيانات والأزرار
             bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+
             if avatar_url:
-                bot.send_photo(message.chat.id, avatar_url, caption=text, parse_mode="HTML", reply_markup=markup)
+                try:
+                    # تحميل الصورة وإرسالها كملف (Document) لتظهر مصغرة وأنيقة
+                    img_response = requests.get(avatar_url)
+                    img_file = io.BytesIO(img_response.content)
+                    img_file.name = f"AmanFusion_{username}.jpg"
+                    bot.send_document(message.chat.id, img_file, caption=text, parse_mode="HTML", reply_markup=markup)
+                except Exception as e:
+                    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
             else:
                 bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=markup)
 
@@ -316,6 +354,7 @@ def process_profile_link(message):
 
     except Exception as e:
         bot.edit_message_text("⚠️ حدث خطأ أثناء الاتصال بالسيرفر. حاول مرة أخرى.", chat_id=message.chat.id, message_id=msg.message_id)
+        print(e)
 
 
 def process_download_link(message):
