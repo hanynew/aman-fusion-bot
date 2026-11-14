@@ -27,7 +27,7 @@ CHANNEL_USERNAME = "@AmanFusion"
 RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
 RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
 
-# === قاموس الدول (لترجمة رمز الدولة إلى اسم عربي وعلم) ===
+# === قاموس الدول الشامل ===
 COUNTRIES = {
     "SA": ("المملكة العربية السعودية", "🇸🇦"), "AE": ("الإمارات العربية المتحدة", "🇦🇪"),
     "EG": ("مصر", "🇪🇬"), "YE": ("اليمن", "🇾🇪"), "IQ": ("العراق", "🇮🇶"),
@@ -36,16 +36,15 @@ COUNTRIES = {
     "OM": ("سلطنة عُمان", "🇴🇲"), "SD": ("السودان", "🇸🇩"), "LB": ("لبنان", "🇱🇧"),
     "SY": ("سوريا", "🇸🇾"), "US": ("الولايات المتحدة", "🇺🇸"), "GB": ("المملكة المتحدة", "🇬🇧"),
     "TR": ("تركيا", "🇹🇷"), "FR": ("فرنسا", "🇫🇷"), "DE": ("ألمانيا", "🇩🇪"),
-    "IN": ("الهند", "🇮🇳"), "ID": ("إندونيسيا", "🇮🇩")
+    "IN": ("الهند", "🇮🇳"), "ID": ("إندونيسيا", "🇮🇩"), "RU": ("روسيا", "🇷🇺"),
+    "BR": ("البرازيل", "🇧🇷"), "PK": ("باكستان", "🇵🇰")
 }
 
 # === دوال مساعدة ===
 def is_subscribed(chat_id, user_id):
     try:
-        status = bot.get_chat_member(chat_id, user_id).status
-        return status in ['member', 'administrator', 'creator']
-    except Exception:
-        return True 
+        return bot.get_chat_member(chat_id, user_id).status in ['member', 'administrator', 'creator']
+    except: return True 
 
 def register_user(user_id, first_name, username):
     users_collection.update_one(
@@ -74,7 +73,7 @@ def get_account_level(followers):
     elif followers > 1000: return "نشط 🚀"
     else: return "مبتدئ 🐣"
 
-# --- لوحة المفاتيح السفلية الدائمة (تم حل المشكلة فيها) ---
+# لوحة المفاتيح السفلية الدائمة
 def get_main_reply_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(KeyboardButton("🚀 START"), KeyboardButton("🛠 الخدمات"))
@@ -89,7 +88,7 @@ def send_main_menu(chat_id, first_name):
     markup.add(InlineKeyboardButton("📊 بيانات الحساب", callback_data="service_profile"))
     markup.add(InlineKeyboardButton("📥 تحميل بدون علامة مائية", callback_data="service_download"))
     markup.add(InlineKeyboardButton("🔍 البحث عن الوسائط", callback_data="service_media"))
-    text = f"مرحباً بك يا {first_name} في أمان فيوجن 🛠️\n\n✨ **يرجى اختيار الخدمة المطلوبة من القائمة أدناه:**"
+    text = f"مرحباً بك يا {first_name} في أمان فيوجن 🛠️\n\n✨ **يرجى اختيار الخدمة المطلوبة:**"
     bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=markup)
 
 @bot.message_handler(commands=['start'])
@@ -99,91 +98,67 @@ def send_welcome(message):
     username = message.from_user.username
     
     if users_collection.find_one({"_id": user_id, "is_banned": True}):
-        bot.reply_to(message, "⛔️ عذراً، لقد تم حظرك من استخدام هذا البوت.", reply_markup=get_main_reply_keyboard())
+        bot.reply_to(message, "⛔️ عذراً، تم حظرك.", reply_markup=get_main_reply_keyboard())
         return
 
     if not is_subscribed(CHANNEL_USERNAME, user_id):
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("📢 اضغط هنا للاشتراك في القناة", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"))
+        markup.add(InlineKeyboardButton("📢 اشترك في القناة", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}"))
         markup.add(InlineKeyboardButton("✅ تحقق من الاشتراك", callback_data="check_sub"))
-        bot.reply_to(message, f"👋 أهلاً بك يا {first_name}\n\n⚠️ يجب الاشتراك في قناتنا أولاً لتتمكن من استخدام البوت.", reply_markup=markup)
-        bot.send_message(message.chat.id, "👇", reply_markup=get_main_reply_keyboard())
+        bot.reply_to(message, f"👋 أهلاً بك\n\n⚠️ يجب الاشتراك أولاً.", reply_markup=markup)
         return
 
     register_user(user_id, first_name, username)
-    bot.send_message(message.chat.id, "✅ تم تفعيل الكيبورد السفلي بنجاح.", reply_markup=get_main_reply_keyboard())
+    bot.send_message(message.chat.id, "✅ القائمة الرئيسية", reply_markup=get_main_reply_keyboard())
     send_main_menu(message.chat.id, first_name)
 
-# التقاط الأزرار السفلية الدائمة
 @bot.message_handler(func=lambda message: message.text in ["🚀 START", "🛠 الخدمات"])
 def handle_reply_keyboard(message):
-    if message.text == "🚀 START":
-        send_welcome(message)
-    elif message.text == "🛠 الخدمات":
-        send_main_menu(message.chat.id, message.from_user.first_name or "مستخدم")
+    if message.text == "🚀 START": send_welcome(message)
+    elif message.text == "🛠 الخدمات": send_main_menu(message.chat.id, message.from_user.first_name or "مستخدم")
 
 # ==========================================
 # 🔴 قسم لوحة تحكم الإدارة (الآدمن) 🔴
 # ==========================================
 
-@bot.message_handler(commands=['myid'])
-def send_id(message):
-    bot.reply_to(message, f"الآي دي الخاص بك هو: <code>{message.from_user.id}</code>", parse_mode="HTML")
-
 @bot.message_handler(commands=['admin'])
 def admin_panel(message):
     if message.from_user.id in ADMIN_IDS:
-        users_count = users_collection.count_documents({})
-        banned_count = users_collection.count_documents({"is_banned": True})
         markup = InlineKeyboardMarkup()
-        markup.add(InlineKeyboardButton("📊 قائمة المشتركين", callback_data="stats"))
+        markup.add(InlineKeyboardButton("📊 المشتركين", callback_data="stats"))
         markup.row(InlineKeyboardButton("⛔️ حظر", callback_data="ban_user"), InlineKeyboardButton("🔓 فك حظر", callback_data="unban_user"))
-        markup.add(InlineKeyboardButton(f"🚫 المحظورين ({banned_count})", callback_data="banned_list"))
-        markup.add(InlineKeyboardButton("📢 إذاعة للكل", callback_data="broadcast"))
-        bot.reply_to(message, f"👑 <b>لوحة الإدارة</b> 👑\n👥 المشتركين: {users_count}\n🚫 المحظورين: {banned_count}", parse_mode="HTML", reply_markup=markup)
+        markup.add(InlineKeyboardButton("📢 إذاعة", callback_data="broadcast"))
+        bot.reply_to(message, f"👑 <b>لوحة الإدارة</b>", parse_mode="HTML", reply_markup=markup)
 
 # ==========================================
 # ⚙️ معالجة جميع ضغطات الأزرار (خدمات + آدمن) ⚙️
 # ==========================================
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    # === خدمات البوت الأساسية ===
     if call.data == "check_sub":
         if is_subscribed(CHANNEL_USERNAME, call.from_user.id):
-            bot.answer_callback_query(call.id, "✅ تم التحقق، شكراً لاشتراكك!")
+            bot.answer_callback_query(call.id, "✅ تم التحقق!")
             bot.delete_message(call.message.chat.id, call.message.message_id)
             send_main_menu(call.message.chat.id, call.from_user.first_name)
-        else:
-            bot.answer_callback_query(call.id, "❌ لم تقم بالاشتراك بعد!", show_alert=True)
+        else: bot.answer_callback_query(call.id, "❌ لم تشترك بعد!", show_alert=True)
         return
 
     if call.data == "service_profile":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📊 أرسل يوزر الحساب مسبوقاً بـ @ (أو رابط الحساب):\nأو أرسل /cancel للإلغاء")
+        msg = bot.send_message(call.message.chat.id, "📊 أرسل يوزر الحساب مسبوقاً بـ @:")
         bot.register_next_step_handler(msg, process_profile_link)
         return
-        
-    if call.data == "service_download":
-        bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📥 أرسل رابط الفيديو لتحميله:\nأو أرسل /cancel للإلغاء")
-        bot.register_next_step_handler(msg, process_download_link)
-        return
 
-    if call.data == "service_media":
-        bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "🔍 أرسل الكلمة المفتاحية للبحث:\nأو أرسل /cancel للإلغاء")
-        bot.register_next_step_handler(msg, process_media_search)
-        return
-
-    # === الأزرار التفاعلية لبيانات الحساب ===
+    # === الأزرار التفاعلية ===
     if call.data.startswith("info_"):
-        parts = call.data.split("_")
+        # استخدام split("_", 2) لضمان عدم قطع اليوزرات التي تحتوي على شرطة سفلية
+        parts = call.data.split("_", 2)
         action = parts[1]
-        target_username = parts[2] if len(parts) > 2 else ""
+        target_username = parts[2].replace("@", "") if len(parts) > 2 else ""
 
         if action == "country":
             bot.answer_callback_query(call.id, "🌍 يتم جلب الدولة من خوادم تيك توك.")
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من إعدادات الحساب الفعلية في تيك توك، وهي تعكس الدولة التي تم تسجيل الحساب منها للمستخدم: @{target_username}", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من إعدادات الحساب الفعلية في تيك توك لليوزر: @{target_username}", parse_mode="Markdown")
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
@@ -192,13 +167,11 @@ def callback_query(call):
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
                 if res.get("code") == 0:
                     followers = res["data"]["stats"].get("followerCount", 0)
-                    level = get_account_level(followers)
-                    bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {level}\n(بناءً على عدد المتابعين: {followers:,})", parse_mode="Markdown")
-            except:
-                bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال بالخادم.")
+                    bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
+            except: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
             
         elif action == "contact":
-            bot.answer_callback_query(call.id, "⏳ جاري البحث عن طرق تواصل...")
+            bot.answer_callback_query(call.id, "⏳ جاري البحث...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
             try:
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
@@ -206,13 +179,9 @@ def callback_query(call):
                     bio = res["data"]["user"].get("signature", "")
                     emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
                     phones = re.findall(r'\+?\d{8,15}', bio)
-                    text = "📧 **معلومات التواصل المستخرجة:**\n\n"
-                    text += f"البريد: {', '.join(emails) if emails else 'غير متاح للعامة'}\n"
-                    text += f"الرقم: {', '.join(phones) if phones else 'غير متاح للعامة'}\n"
-                    text += "\n*(ملاحظة: تيك توك يمنع استخراج الإيميلات المخفية، نعتمد على المتوفر بالبايو)*"
+                    text = f"📧 **معلومات التواصل:**\nالبريد: {', '.join(emails) if emails else 'غير متاح'}\nالرقم: {', '.join(phones) if phones else 'غير متاح'}"
                     bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-            except:
-                bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
+            except: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
         elif action in ["followers", "following"]:
             endpoint = "user/followers" if action == "followers" else "user/followings"
@@ -223,19 +192,15 @@ def callback_query(call):
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username, "count": 10}).json()
                 if res.get("code") == 0 and res.get("data") and "userList" in res["data"]:
                     usersList = res["data"]["userList"]
-                    if not usersList:
-                        bot.edit_message_text("❌ القائمة فارغة أو مخفية بقرار الخصوصية.", chat_id=call.message.chat.id, message_id=msg.message_id)
-                        return
-                    text = "👥 **أحدث الحسابات في القائمة:**\n\n"
-                    for u in usersList[:10]:
-                        text += f"👤 {u.get('user', {}).get('nickname', 'بدون اسم')} | `@{u.get('user', {}).get('uniqueId', '')}`\n"
-                    bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-                else:
-                    bot.edit_message_text("⚠️ تعذر جلب القائمة. قد يكون الحساب خاصاً أو هناك قيود على الـ API المجاني.", chat_id=call.message.chat.id, message_id=msg.message_id)
-            except:
-                bot.edit_message_text("⚠️ خطأ في الاتصال بالخادم.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                    if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                    else:
+                        text = "👥 **أحدث الحسابات:**\n\n"
+                        for u in usersList[:10]: text += f"👤 {u.get('user', {}).get('nickname', 'بدون اسم')} | `@{u.get('user', {}).get('uniqueId', '')}`\n"
+                        bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+                else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
+            except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # --- دالة جلب الستوريات وعرض الأزرار المرقمة ---
+        # --- دالة البحث عن الستوريات وعرض الأزرار ---
         elif action == "story":
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوريات...")
@@ -258,17 +223,16 @@ def callback_query(call):
                     
                     bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=markup)
                 else:
-                    bot.edit_message_text("❌ لا توجد ستوريات نشطة لهذا الحساب حالياً، أو الحساب خاص.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                    bot.edit_message_text("❌ لا توجد ستوريات نشطة لهذا الحساب حالياً.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except Exception as e:
-                bot.edit_message_text("⚠️ تعذر الاتصال بخادم الستوري. جرب لاحقاً.", chat_id=call.message.chat.id, message_id=msg.message_id)
-                print(e)
+                bot.edit_message_text("⚠️ تعذر الاتصال بخادم الستوري.", chat_id=call.message.chat.id, message_id=msg.message_id)
         return
 
-    # === دالة إرسال الستوري الفعلي (بعد الضغط على زر الرقم) ===
+    # === زر جلب الستوري الفعلي (الفيديو/الصورة) ===
     if call.data.startswith("getstory_"):
-        parts = call.data.split("_")
+        parts = call.data.split("_", 2)
         story_index = int(parts[1])
-        target_username = parts[2]
+        target_username = parts[2].replace("@", "")
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
         
@@ -282,85 +246,31 @@ def callback_query(call):
                     
                     author_nick = story.get("author", {}).get("nickname", "بدون اسم")
                     stats = story.get("stats", {})
-                    views = stats.get("playCount", 0)
-                    likes = stats.get("diggCount", 0)
-                    shares = stats.get("shareCount", 0)
                     
                     music_title = story.get("music", {}).get("title", "الصوت الأصلي")
                     music_url = story.get("music", {}).get("playUrl", "")
                     
-                    text = f"ستوري #{story_index+1}\n"
-                    text += f"اليوزر: @{target_username}\n"
-                    text += f"الاسم: {author_nick}\n"
-                    text += f"المشاهدات: {views}\n"
-                    text += f"اللايكات: {likes}\n"
-                    text += f"المشاركات: {shares}\n"
+                    text = f"ستوري #{story_index+1}\nاليوزر: @{target_username}\nالاسم: {author_nick}\n"
+                    text += f"المشاهدات: {stats.get('playCount', 0)}\nاللايكات: {stats.get('diggCount', 0)}\nالمشاركات: {stats.get('shareCount', 0)}"
                     
                     video_url = story.get("video", {}).get("playAddr", "")
                     images = story.get("imagePost", {}).get("images", [])
                     
-                    msg = bot.send_message(call.message.chat.id, "⏳ جاري إرسال الميديا...")
+                    msg = bot.send_message(call.message.chat.id, "⏳ جاري الإرسال...")
                     
-                    if video_url:
-                        bot.send_video(call.message.chat.id, video_url, caption=text, parse_mode="HTML")
-                    elif images:
-                        img_url = images[0].get("imageURL", {}).get("urlList", [""])[0]
-                        bot.send_photo(call.message.chat.id, img_url, caption=text, parse_mode="HTML")
-                    else:
-                        bot.send_message(call.message.chat.id, "⚠️ الستوري لا تحتوي على وسائط مدعومة.")
+                    if video_url: bot.send_video(call.message.chat.id, video_url, caption=text, parse_mode="HTML")
+                    elif images: bot.send_photo(call.message.chat.id, images[0].get("imageURL", {}).get("urlList", [""])[0], caption=text, parse_mode="HTML")
+                    else: bot.send_message(call.message.chat.id, "⚠️ الستوري غير مدعومة.")
                         
                     bot.delete_message(chat_id=call.message.chat.id, message_id=msg.message_id)
                     
-                    # إرسال الصوت كملف منفصل كما طلب المستخدم بالصورة
                     if music_url:
-                        try:
-                            bot.send_audio(call.message.chat.id, music_url, caption=f"🎵 **{music_title}**\n@bdallhshay7", parse_mode="Markdown")
-                        except:
-                            # إذا فشل تيليجرام في رفع الصوت نرسله كزر مدمج
-                            audio_markup = InlineKeyboardMarkup()
-                            audio_markup.add(InlineKeyboardButton(f"🎧 {music_title}", url=music_url))
-                            bot.send_message(call.message.chat.id, f"🎵 **الصوت الأصلي**\n@bdallhshay7", parse_mode="Markdown", reply_markup=audio_markup)
-            else:
-                bot.send_message(call.message.chat.id, "❌ لم تعد الستوري متاحة.")
-        except Exception as e:
-            bot.send_message(call.message.chat.id, "⚠️ حدث خطأ أثناء تحميل الستوري.")
-            print(e)
+                        audio_markup = InlineKeyboardMarkup()
+                        audio_markup.add(InlineKeyboardButton(f"🎧 {music_title}", url=music_url))
+                        bot.send_message(call.message.chat.id, f"🎵 **الصوت الأصلي**\n@bdallhshay7", parse_mode="Markdown", reply_markup=audio_markup)
+            else: bot.send_message(call.message.chat.id, "❌ لم تعد الستوري متاحة.")
+        except Exception as e: bot.send_message(call.message.chat.id, "⚠️ حدث خطأ.")
         return
-
-    # === دوال الإدارة ===
-    if call.from_user.id in ADMIN_IDS:
-        if call.data == "stats":
-            bot.answer_callback_query(call.id, "جاري جلب قائمة المشتركين...")
-            users = list(users_collection.find({}))
-            if not users:
-                bot.send_message(call.message.chat.id, "لا يوجد مشتركين.")
-                return
-            text = "📊 <b>قائمة المشتركين:</b>\n\n"
-            for idx, u in enumerate(users, start=1):
-                username = f"@{html.escape(str(u.get('username')))}" if u.get("username") else "بدون يوزر"
-                text += f"{idx}. <b>{html.escape(str(u.get('first_name', 'بدون اسم')))}</b>\n   🆔 <code>{u['_id']}</code> | {username}\n"
-            bot.send_message(call.message.chat.id, text, parse_mode="HTML")
-        elif call.data == "ban_user":
-            bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "⛔️ أرسل رقم الآي دي לחظر:\nأو أرسل /cancel", reply_markup=get_main_reply_keyboard())
-            bot.register_next_step_handler(msg, process_ban)
-        elif call.data == "unban_user":
-            bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "🔓 أرسل رقم الآي دي لفك الحظر:\nأو أرسل /cancel", reply_markup=get_main_reply_keyboard())
-            bot.register_next_step_handler(msg, process_unban)
-        elif call.data == "banned_list":
-            bot.answer_callback_query(call.id)
-            banned = list(users_collection.find({"is_banned": True}))
-            if not banned:
-                bot.send_message(call.message.chat.id, "لا يوجد محظورين.")
-                return
-            text = "🚫 المحظورين:\n"
-            for u in banned: text += f"🆔 <code>{u['_id']}</code>\n"
-            bot.send_message(call.message.chat.id, text, parse_mode="HTML")
-        elif call.data == "broadcast":
-            bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "📢 أرسل رسالة الإذاعة:\nأو أرسل /cancel", reply_markup=get_main_reply_keyboard())
-            bot.register_next_step_handler(msg, process_broadcast)
 
 # ==========================================
 # 🛠️ دالة جلب البيانات الأساسية (البروفايل) 🛠️
@@ -384,7 +294,8 @@ def process_profile_link(message):
             user = res["data"].get("user", {})
             stats = res["data"].get("stats", {})
 
-            region_code = user.get("region", "")
+            # بحث عميق عن الدولة لمنع ظهورها كـ "غير محددة"
+            region_code = user.get("region") or user.get("country") or user.get("iso3166") or ""
             country_name, country_flag = get_country_info(region_code)
 
             uid = user.get("id", "غير متوفر")
@@ -494,48 +405,6 @@ def process_profile_link(message):
 
     except Exception as e:
         bot.edit_message_text("⚠️ حدث خطأ في الاتصال. يرجى المحاولة لاحقاً.", chat_id=message.chat.id, message_id=msg.message_id)
-
-def process_download_link(message):
-    if message.text == '/cancel':
-        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
-        return
-    bot.reply_to(message, f"⏳ سيتم برمجة التحميل قريباً...")
-
-def process_media_search(message):
-    if message.text == '/cancel':
-        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
-        return
-    bot.reply_to(message, f"⏳ سيتم برمجة البحث قريباً...")
-
-def process_ban(message):
-    if message.text == "/cancel": return
-    try:
-        tid = int(message.text.strip())
-        if tid in ADMIN_IDS: return bot.reply_to(message, "⚠️ لا يمكن حظر الآدمن.")
-        users_collection.update_one({"_id": tid}, {"$set": {"is_banned": True}})
-        bot.reply_to(message, f"✅ تم الحظر.")
-    except:
-        bot.reply_to(message, "⚠️ أرسل أرقام فقط.")
-
-def process_unban(message):
-    if message.text == "/cancel": return
-    try:
-        tid = int(message.text.strip())
-        users_collection.update_one({"_id": tid}, {"$set": {"is_banned": False}})
-        bot.reply_to(message, f"✅ تم فك الحظر.")
-    except:
-        bot.reply_to(message, "⚠️ أرسل أرقام فقط.")
-
-def process_broadcast(message):
-    if message.text == "/cancel": return
-    bot.reply_to(message, "⏳ جاري الإذاعة...")
-    success, failed = 0, 0
-    for u in users_collection.find({"is_banned": False}):
-        try:
-            bot.copy_message(u["_id"], message.chat.id, message.message_id)
-            success += 1
-        except: failed += 1
-    bot.reply_to(message, f"✅ تمت الإذاعة بنجاح.\nوصلت إلى {success}")
 
 # ==========================================
 # 🌐 إعدادات سيرفر Render (Webhook) 🌐
