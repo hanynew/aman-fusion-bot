@@ -144,13 +144,13 @@ def callback_query(call):
 
     if call.data == "service_profile":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📊 أرسل الآن رابط الحساب الذي تريد تحليله:\n(أو أرسل /cancel للإلغاء)")
+        msg = bot.send_message(call.message.chat.id, "📊 أرسل الآن يوزر الحساب الذي تريد تحليله مسبوقاً بـ @ (أو رابط الحساب):\n(أو أرسل /cancel للإلغاء)")
         bot.register_next_step_handler(msg, process_profile_link)
         return
         
     if call.data == "service_download":
         bot.answer_callback_query(call.id)
-        msg = bot.send_message(call.message.chat.id, "📥 أرسل الآن رابط الفيديو (تيك توك، انستجرام، الخ) لتحميله بدون علامة مائية:\n(أو أرسل /cancel للإلغاء)")
+        msg = bot.send_message(call.message.chat.id, "📥 أرسل الآن رابط الفيديو لتحميله بدون علامة مائية:\n(أو أرسل /cancel للإلغاء)")
         bot.register_next_step_handler(msg, process_download_link)
         return
         
@@ -215,6 +215,7 @@ def callback_query(call):
         msg = bot.send_message(call.message.chat.id, "📢 أرسل الآن الرسالة (نص، صورة، فيديو، أو ملف) التي تريد إذاعتها للكل:\n(أو أرسل /cancel للإلغاء)")
         bot.register_next_step_handler(msg, process_broadcast)
 
+
 # ==========================================
 # 🛠️ دوال معالجة الخدمات (الرد على المستخدم) 🛠️
 # ==========================================
@@ -228,40 +229,79 @@ def process_profile_link(message):
     msg = bot.reply_to(message, "⏳ جاري استخراج بيانات الحساب... يرجى الانتظار.")
     
     try:
+        # استخراج اليوزر
         username = input_text
         if "tiktok.com" in username:
             if "@" in username:
                 username = username.split("@")[1].split("?")[0].split("/")[0]
             else:
-                bot.edit_message_text("⚠️ عذراً، يرجى إرسال يوزر الحساب أو رابط مباشر للحساب.", chat_id=message.chat.id, message_id=msg.message_id)
+                bot.edit_message_text("⚠️ عذراً، يرجى إرسال يوزر الحساب مسبوقاً بـ @ أو رابط مباشر للحساب.", chat_id=message.chat.id, message_id=msg.message_id)
                 return
                 
         username = username.replace("@", "")
 
-        text = f"📊 <b>بيانات حساب تيك توك</b> 📊\n\n"
-        text += f"👤 <b>الاسم:</b> (جاري الربط)\n"
-        text += f"🔗 <b>اليوزر:</b> <code>@{username}</code>\n"
-        text += f"👥 <b>المتابعين:</b> (جاري الربط)\n"
-        text += f"👣 <b>يتابع:</b> (جاري الربط)\n"
-        text += f"❤️ <b>الإعجابات:</b> (جاري الربط)\n\n"
-        text += f"📝 <b>البايو:</b>\n(جاري الربط)\n"
-        
-        bot.edit_message_text(text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
-        
-    except Exception:
-        bot.edit_message_text("⚠️ حدث خطأ غير متوقع. يرجى التأكد من كتابة اليوزر بشكل صحيح.", chat_id=message.chat.id, message_id=msg.message_id)
+        # --- ربط الـ API لجلب البيانات الحقيقية ---
+        url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
+        querystring = {"unique_id": username}
+
+        headers = {
+            "x-rapidapi-key": "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87",
+            "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"
+        }
+
+        response = requests.get(url, headers=headers, params=querystring)
+        data = response.json()
+
+        # التحقق من نجاح الرد
+        if data.get("code") == 0 and data.get("data"):
+            user_info = data["data"]["user"]
+            stats = data["data"]["stats"]
+
+            full_name = html.escape(user_info.get("nickname", "بدون اسم"))
+            bio = html.escape(user_info.get("signature", "لا يوجد بايو"))
+            avatar_url = user_info.get("avatarLarger")
+
+            followers = f"{stats.get('followerCount', 0):,}"
+            following = f"{stats.get('followingCount', 0):,}"
+            hearts = f"{stats.get('heartCount', 0):,}"
+            video_count = f"{stats.get('videoCount', 0):,}"
+
+            # تجهيز رسالة العرض الفخمة
+            text = f"📊 <b>بيانات حساب تيك توك</b> 📊\n\n"
+            text += f"👤 <b>الاسم:</b> {full_name}\n"
+            text += f"🔗 <b>اليوزر:</b> <code>@{username}</code>\n"
+            text += f"👥 <b>المتابعين:</b> {followers}\n"
+            text += f"👣 <b>يتابع:</b> {following}\n"
+            text += f"❤️ <b>الإعجابات:</b> {hearts}\n"
+            text += f"🎬 <b>الفيديوهات:</b> {video_count}\n\n"
+            text += f"📝 <b>البايو:</b>\n{bio}\n"
+
+            # إرسال الصورة الشخصية مع البيانات
+            if avatar_url:
+                bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
+                bot.send_photo(message.chat.id, avatar_url, caption=text, parse_mode="HTML")
+            else:
+                bot.edit_message_text(text, chat_id=message.chat.id, message_id=msg.message_id, parse_mode="HTML")
+
+        else:
+            bot.edit_message_text("⚠️ عذراً، لم أتمكن من العثور على هذا الحساب، أو أن الحساب خاص.", chat_id=message.chat.id, message_id=msg.message_id)
+
+    except Exception as e:
+        bot.edit_message_text("⚠️ حدث خطأ أثناء الاتصال بالسيرفر. حاول مرة أخرى لاحقاً.", chat_id=message.chat.id, message_id=msg.message_id)
+        print(f"API Error: {e}")
 
 def process_download_link(message):
     if message.text == '/cancel':
         bot.reply_to(message, "تم الإلغاء. يمكنك اختيار خدمة أخرى من القائمة /start")
         return
-    bot.reply_to(message, f"⏳ جاري معالجة الرابط وجلب الفيديو بدون علامة مائية...\n\n(هنا سنقوم بربط أداة التحميل الفعلية)")
+    bot.reply_to(message, f"⏳ جاري معالجة الرابط وجلب الفيديو بدون علامة مائية...\n\n(سنقوم برمجتها في الخطوة القادمة)")
 
 def process_media_search(message):
     if message.text == '/cancel':
         bot.reply_to(message, "تم الإلغاء. يمكنك اختيار خدمة أخرى من القائمة /start")
         return
-    bot.reply_to(message, f"⏳ جاري البحث عن الوسائط...\n\n(هنا سنقوم بربط محرك البحث)")
+    bot.reply_to(message, f"⏳ جاري البحث عن الوسائط...\n\n(سنقوم برمجتها لاحقاً)")
+
 
 # ==========================================
 # 🔐 دوال تنفيذ الحظر والإذاعة للآدمن 🔐
