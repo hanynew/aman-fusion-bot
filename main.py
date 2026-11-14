@@ -19,7 +19,7 @@ app = Flask(__name__)
 try:
     BOT_USERNAME = f"@{bot.get_me().username}"
 except:
-    BOT_USERNAME = "@AmanFusionBot"
+    BOT_USERNAME = "@AmanFusion_bot"
 
 # === ربط قاعدة بيانات MongoDB ===
 MONGO_URI = os.environ.get('MONGO_URI')
@@ -33,7 +33,7 @@ CHANNEL_USERNAME = "@AmanFusion"
 RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
 RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
 
-# === قاموس الدول ===
+# === قاموس الدول واللغات ===
 COUNTRIES = {
     "SA": ("المملكة العربية السعودية", "🇸🇦"), "AE": ("الإمارات العربية المتحدة", "🇦🇪"),
     "EG": ("مصر", "🇪🇬"), "YE": ("اليمن", "🇾🇪"), "IQ": ("العراق", "🇮🇶"),
@@ -43,13 +43,20 @@ COUNTRIES = {
     "SY": ("سوريا", "🇸🇾"), "US": ("الولايات المتحدة", "🇺🇸"), "GB": ("المملكة المتحدة", "🇬🇧"),
     "TR": ("تركيا", "🇹🇷"), "FR": ("فرنسا", "🇫🇷"), "DE": ("ألمانيا", "🇩🇪"),
     "IN": ("الهند", "🇮🇳"), "ID": ("إندونيسيا", "🇮🇩"), "RU": ("روسيا", "🇷🇺"),
-    "BR": ("البرازيل", "🇧🇷"), "PK": ("باكستان", "🇵🇰")
+    "BR": ("البرازيل", "🇧🇷"), "PK": ("باكستان", "🇵🇰"), "CN": ("الصين", "🇨🇳")
+}
+
+LANGUAGES = {
+    "ar": "العربية", "en": "الإنجليزية", "fr": "الفرنسية", "es": "الإسبانية",
+    "tr": "التركية", "ur": "الأردية", "id": "الإندونيسية", "hi": "الهندية",
+    "zh-Hant": "الصينية", "zh-Hans": "الصينية", "ru": "الروسية", "de": "الألمانية",
+    "ja": "اليابانية", "ko": "الكورية", "pt": "البرتغالية"
 }
 
 # ==========================================
-# 🕸️ سكربت السحب المباشر (Web Scraping) 🕸️
+# 🕸️ سكربت السحب المباشر (Web Scraping المتطور) 🕸️
 # ==========================================
-def tiktok_web_scraper(username):
+def advanced_tiktok_scraper(username):
     user_agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -58,42 +65,64 @@ def tiktok_web_scraper(username):
     headers = {
         "User-Agent": random.choice(user_agents),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Referer": "https://www.google.com/"
+        "Accept-Language": "ar,en-US;q=0.7,en;q=0.3",
+        "Referer": "https://www.tiktok.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
     }
     
-    scraped_data = {"user": {}, "stats": {}}
+    scraped_data = {"user": {}, "stats": {}, "stories": []}
     try:
         url = f"https://www.tiktok.com/@{username}"
-        res = requests.get(url, headers=headers, timeout=10)
-        
-        # استخراج البيانات المخفية (الجيل الجديد من تيك توك)
-        match_new = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)</script>', res.text)
+        res = requests.get(url, headers=headers, timeout=12)
+        html_content = res.text
+
+        # 1. البحث في البيانات المهيكلة الجيل الجديد (__UNIVERSAL_DATA_FOR_REHYDRATION__)
+        match_new = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)</script>', html_content)
         if match_new:
-            raw = json.loads(match_new.group(1))
-            user_module = raw.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {})
-            if user_module:
-                return {"user": user_module.get("user", {}), "stats": user_module.get("stats", {})}
-        
-        # استخراج البيانات المخفية (الجيل القديم من تيك توك)
-        match_old = re.search(r'<script id="SIGI_STATE"[^>]*>([^<]+)</script>', res.text)
+            try:
+                raw = json.loads(match_new.group(1))
+                user_module = raw.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {})
+                if user_module:
+                    scraped_data["user"].update(user_module.get("user", {}))
+                    scraped_data["stats"].update(user_module.get("stats", {}))
+            except: pass
+
+        # 2. البحث في الجيل القديم (SIGI_STATE) كنسخة احتياطية
+        match_old = re.search(r'<script id="SIGI_STATE"[^>]*>([^<]+)</script>', html_content)
         if match_old:
-            sigi = json.loads(match_old.group(1))
-            users = sigi.get("UserModule", {}).get("users", {})
-            stats = sigi.get("UserModule", {}).get("stats", {})
-            for k, v in users.items():
-                if k.lower() == username.lower(): scraped_data["user"] = v
-            for k, v in stats.items():
-                if k.lower() == username.lower(): scraped_data["stats"] = v
-            return scraped_data
-    except:
-        pass
+            try:
+                sigi = json.loads(match_old.group(1))
+                users = sigi.get("UserModule", {}).get("users", {})
+                stats = sigi.get("UserModule", {}).get("stats", {})
+                
+                # استخراج الستوريات إن وجدت في SIGI
+                item_module = sigi.get("ItemModule", {})
+                for key, item in item_module.items():
+                    if item.get("isStory") or item.get("storyType"):
+                        scraped_data["stories"].append(item)
+
+                for k, v in users.items():
+                    if k.lower() == username.lower(): scraped_data["user"].update(v)
+                for k, v in stats.items():
+                    if k.lower() == username.lower(): scraped_data["stats"].update(v)
+            except: pass
+
+        # 3. صيد الدولة (Region) من الميتا تاغز واللغة كحل أخير
+        if not scraped_data["user"].get("region"):
+            # بحث عن أي إشارة للدولة في الكود
+            region_match = re.search(r'"region":"([A-Za-z]{2})"', html_content)
+            if region_match:
+                scraped_data["user"]["region"] = region_match.group(1)
+
+    except Exception as e: print(f"Scraper Error: {e}")
     return scraped_data
 
-# نظام المسح الهجين (API + Web Scraper)
+# نظام المسح الهجين الشامل
 def fetch_user_data_hybrid(unique_id):
     headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-    data = {"user": {}, "stats": {}}
+    data = {"user": {}, "stats": {}, "stories": []}
     
     # 1. السحب عبر الـ API
     try:
@@ -103,8 +132,8 @@ def fetch_user_data_hybrid(unique_id):
             data["stats"].update(res_info["data"].get("stats", {}))
     except: pass
 
-    # 2. دمج السحب المباشر لإصلاح النواقص (الدولة، الأصدقاء، التواريخ)
-    scraped = tiktok_web_scraper(unique_id)
+    # 2. دمج السحب المباشر
+    scraped = advanced_tiktok_scraper(unique_id)
     if scraped:
         if "user" in scraped:
             for k, v in scraped["user"].items():
@@ -112,6 +141,8 @@ def fetch_user_data_hybrid(unique_id):
         if "stats" in scraped:
             for k, v in scraped["stats"].items():
                 if v or v == 0: data["stats"][k] = v
+        if "stories" in scraped and scraped["stories"]:
+            data["stories"] = scraped["stories"]
                 
     return data
 
@@ -138,9 +169,16 @@ def format_date(timestamp):
 
 def get_yes_no(val): return "نعم ✅" if val else "لا ❌"
 def get_privacy(val): return "للجميع 🌍" if val == 0 else "مغلق ❌"
+
 def get_country_info(code):
     if not code: return "غير محددة", ""
     return COUNTRIES.get(code.upper(), (code, ""))
+
+def get_language_name(code):
+    if not code: return "غير محددة"
+    # أخذ أول جزئية من كود اللغة (مثلا ar-SA تصبح ar)
+    base_code = code.split("-")[0].lower()
+    return LANGUAGES.get(base_code, code) # إذا لم يجدها في القاموس يعرض الرمز
 
 def get_account_level(followers):
     if followers > 1000000: return "أسطوري 🌟"
@@ -272,7 +310,7 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # استخراج الستوري - نحاول تمرير UID أولا ثم اليوزر
+        # استخراج الستوري - المسار المعزز
         elif action == "story":
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوريات...")
@@ -281,6 +319,7 @@ def callback_query(call):
             
             story_data = None
             try:
+                # 1. محاولة بالـ API مع UID
                 res = requests.get(url, headers=headers, params={"user_id": target_uid}).json()
                 if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                     story_data = res["data"]["itemList"]
@@ -288,10 +327,17 @@ def callback_query(call):
 
             if not story_data:
                 try:
+                    # 2. محاولة بالـ API مع اليوزر
                     res = requests.get(url, headers=headers, params={"unique_id": target_username}).json()
                     if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                         story_data = res["data"]["itemList"]
                 except: pass
+
+            if not story_data:
+                # 3. محاولة السحب المباشر كخيار أخير للستوري
+                scraped = advanced_tiktok_scraper(target_username)
+                if scraped.get("stories"):
+                    story_data = scraped["stories"]
 
             if story_data:
                 story_count = len(story_data)
@@ -332,6 +378,11 @@ def callback_query(call):
                 if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                     story_data = res["data"]["itemList"]
             except: pass
+
+        if not story_data:
+            scraped = advanced_tiktok_scraper(target_username)
+            if scraped.get("stories"):
+                story_data = scraped["stories"]
 
         if story_data and story_index < len(story_data):
             story = story_data[story_index]
@@ -379,7 +430,7 @@ def process_profile_link(message):
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # استخدام دالة المسح الهجين للحصول على نتائج حقيقية
+        # استخدام دالة المسح الهجين الشامل
         data = fetch_user_data_hybrid(username)
 
         if data and data.get("user"):
@@ -402,7 +453,10 @@ def process_profile_link(message):
             modify_time = format_date(user.get("nickNameModifyTime"))
             if modify_time == format_date(0): modify_time = "غير متوفر"
             
-            language = user.get("language", "English")
+            # ترجمة اللغة إلى العربية
+            language_code = user.get("language", "en")
+            language = get_language_name(language_code)
+
             is_verified = get_yes_no(user.get("verified", False))
             download_setting = get_privacy(user.get("downloadSetting", 0))
             is_private = get_yes_no(user.get("secret", False))
@@ -433,6 +487,7 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
+            # بناء النص مع التوقيع المطلوب
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
@@ -445,7 +500,7 @@ def process_profile_link(message):
             text += f"تعديل اليوزر: {create_time}\n" 
             text += f"تعديل الاسم: {modify_time}\n"
             text += f"الدولة: {country_name} {country_flag}\n"
-            text += f"• {BOT_USERNAME}\n"
+            text += f"• إنشاء هذا بواسطة أمان فيوجن: {BOT_USERNAME}\n"
             text += f"اللغة: {language}\n"
             text += f"حساب موثق: {is_verified}\n"
             text += f"إعدادات التحميل: {download_setting}\n"
@@ -496,6 +551,48 @@ def process_profile_link(message):
 
     except Exception as e:
         bot.edit_message_text("⚠️ حدث خطأ في الاتصال.", chat_id=message.chat.id, message_id=msg.message_id)
+
+def process_download_link(message):
+    if message.text == '/cancel':
+        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
+        return
+    bot.reply_to(message, f"⏳ سيتم برمجة التحميل قريباً...")
+
+def process_media_search(message):
+    if message.text == '/cancel':
+        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
+        return
+    bot.reply_to(message, f"⏳ سيتم برمجة البحث قريباً...")
+
+def process_ban(message):
+    if message.text == "/cancel": return
+    try:
+        tid = int(message.text.strip())
+        if tid in ADMIN_IDS: return bot.reply_to(message, "⚠️ لا يمكن حظر الآدمن.")
+        users_collection.update_one({"_id": tid}, {"$set": {"is_banned": True}})
+        bot.reply_to(message, f"✅ تم الحظر.")
+    except:
+        bot.reply_to(message, "⚠️ أرسل أرقام فقط.")
+
+def process_unban(message):
+    if message.text == "/cancel": return
+    try:
+        tid = int(message.text.strip())
+        users_collection.update_one({"_id": tid}, {"$set": {"is_banned": False}})
+        bot.reply_to(message, f"✅ تم فك الحظر.")
+    except:
+        bot.reply_to(message, "⚠️ أرسل أرقام فقط.")
+
+def process_broadcast(message):
+    if message.text == "/cancel": return
+    bot.reply_to(message, "⏳ جاري الإذاعة...")
+    success, failed = 0, 0
+    for u in users_collection.find({"is_banned": False}):
+        try:
+            bot.copy_message(u["_id"], message.chat.id, message.message_id)
+            success += 1
+        except: failed += 1
+    bot.reply_to(message, f"✅ تمت الإذاعة بنجاح.\nوصلت إلى {success}")
 
 # ==========================================
 # 🌐 إعدادات سيرفر Render (Webhook) 🌐
