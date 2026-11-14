@@ -2,8 +2,6 @@ import os
 import io
 import re
 import json
-import random
-import html
 import telebot
 import certifi
 import requests
@@ -42,109 +40,78 @@ COUNTRIES = {
     "OM": ("سلطنة عُمان", "🇴🇲"), "SD": ("السودان", "🇸🇩"), "LB": ("لبنان", "🇱🇧"),
     "SY": ("سوريا", "🇸🇾"), "US": ("الولايات المتحدة", "🇺🇸"), "GB": ("المملكة المتحدة", "🇬🇧"),
     "TR": ("تركيا", "🇹🇷"), "FR": ("فرنسا", "🇫🇷"), "DE": ("ألمانيا", "🇩🇪"),
-    "IN": ("الهند", "🇮🇳"), "ID": ("إندونيسيا", "🇮🇩"), "RU": ("روسيا", "🇷🇺"),
-    "BR": ("البرازيل", "🇧🇷"), "PK": ("باكستان", "🇵🇰"), "CN": ("الصين", "🇨🇳")
+    "IN": ("الهند", "🇮🇳"), "ID": ("إندونيسيا", "🇮🇩"), "RU": ("روسيا", "🇷🇺")
 }
 
 LANGUAGES = {
     "ar": "العربية", "en": "الإنجليزية", "fr": "الفرنسية", "es": "الإسبانية",
     "tr": "التركية", "ur": "الأردية", "id": "الإندونيسية", "hi": "الهندية",
-    "zh-Hant": "الصينية", "zh-Hans": "الصينية", "ru": "الروسية", "de": "الألمانية",
-    "ja": "اليابانية", "ko": "الكورية", "pt": "البرتغالية"
+    "zh": "الصينية", "ru": "الروسية", "de": "الألمانية", "ja": "اليابانية", "ko": "الكورية"
 }
 
 # ==========================================
-# 🕸️ سكربت السحب المباشر (Web Scraping المتطور) 🕸️
+# 🕸️ السكربت الاحترافي (المسح الهجين العميق) 🕸️
 # ==========================================
-def advanced_tiktok_scraper(username):
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
-    ]
-    headers = {
-        "User-Agent": random.choice(user_agents),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "ar,en-US;q=0.7,en;q=0.3",
-        "Referer": "https://www.tiktok.com/",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-    }
+def fetch_user_data_pro(unique_id):
+    headers_rapid = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+    data = {"user": {}, "stats": {}}
     
-    scraped_data = {"user": {}, "stats": {}, "stories": []}
+    # 1. السحب عبر واجهة TikWM العامة (ممتازة في جلب الدولة والأصدقاء بدقة عالية)
     try:
-        url = f"https://www.tiktok.com/@{username}"
-        res = requests.get(url, headers=headers, timeout=12)
-        html_content = res.text
-
-        # 1. البحث في البيانات المهيكلة الجيل الجديد (__UNIVERSAL_DATA_FOR_REHYDRATION__)
-        match_new = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)</script>', html_content)
-        if match_new:
-            try:
-                raw = json.loads(match_new.group(1))
-                user_module = raw.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {}).get("userInfo", {})
-                if user_module:
-                    scraped_data["user"].update(user_module.get("user", {}))
-                    scraped_data["stats"].update(user_module.get("stats", {}))
-            except: pass
-
-        # 2. البحث في الجيل القديم (SIGI_STATE) كنسخة احتياطية
-        match_old = re.search(r'<script id="SIGI_STATE"[^>]*>([^<]+)</script>', html_content)
-        if match_old:
-            try:
-                sigi = json.loads(match_old.group(1))
-                users = sigi.get("UserModule", {}).get("users", {})
-                stats = sigi.get("UserModule", {}).get("stats", {})
-                
-                # استخراج الستوريات إن وجدت في SIGI
-                item_module = sigi.get("ItemModule", {})
-                for key, item in item_module.items():
-                    if item.get("isStory") or item.get("storyType"):
-                        scraped_data["stories"].append(item)
-
-                for k, v in users.items():
-                    if k.lower() == username.lower(): scraped_data["user"].update(v)
-                for k, v in stats.items():
-                    if k.lower() == username.lower(): scraped_data["stats"].update(v)
-            except: pass
-
-        # 3. صيد الدولة (Region) من الميتا تاغز واللغة كحل أخير
-        if not scraped_data["user"].get("region"):
-            # بحث عن أي إشارة للدولة في الكود
-            region_match = re.search(r'"region":"([A-Za-z]{2})"', html_content)
-            if region_match:
-                scraped_data["user"]["region"] = region_match.group(1)
-
-    except Exception as e: print(f"Scraper Error: {e}")
-    return scraped_data
-
-# نظام المسح الهجين الشامل
-def fetch_user_data_hybrid(unique_id):
-    headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-    data = {"user": {}, "stats": {}, "stories": []}
-    
-    # 1. السحب عبر الـ API
-    try:
-        res_info = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers, params={"unique_id": unique_id}).json()
-        if res_info.get("code") == 0 and res_info.get("data"):
-            data["user"].update(res_info["data"].get("user", {}))
-            data["stats"].update(res_info["data"].get("stats", {}))
+        res_tikwm = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={unique_id}", timeout=10).json()
+        if res_tikwm.get("code") == 0 and res_tikwm.get("data"):
+            data["user"].update(res_tikwm["data"].get("user", {}))
+            data["stats"].update(res_tikwm["data"].get("stats", {}))
     except: pass
 
-    # 2. دمج السحب المباشر
-    scraped = advanced_tiktok_scraper(unique_id)
-    if scraped:
-        if "user" in scraped:
-            for k, v in scraped["user"].items():
-                if v or v == 0: data["user"][k] = v
-        if "stats" in scraped:
-            for k, v in scraped["stats"].items():
-                if v or v == 0: data["stats"][k] = v
-        if "stories" in scraped and scraped["stories"]:
-            data["stories"] = scraped["stories"]
+    # 2. السحب عبر RapidAPI لتعويض النواقص (التواريخ والإعدادات الدقيقة)
+    try:
+        res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers_rapid, params={"unique_id": unique_id}, timeout=10).json()
+        if res_rapid.get("code") == 0 and res_rapid.get("data"):
+            if "user" in res_rapid["data"]:
+                for k, v in res_rapid["data"]["user"].items():
+                    if v or v == 0: data["user"][k] = v
+            if "stats" in res_rapid["data"]:
+                for k, v in res_rapid["data"]["stats"].items():
+                    if v or v == 0: data["stats"][k] = v
+    except: pass
                 
     return data
+
+# خوارزمية صيد الستوري المتقدمة
+def hunt_for_stories(unique_id, uid):
+    headers_rapid = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+    stories = []
+
+    # المحاولة 1: مسار الستوري المباشر عبر TikWM
+    try:
+        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={unique_id}&count=10", timeout=8).json()
+        if res.get("code") == 0 and res.get("data") and res["data"].get("videos"):
+            for item in res["data"]["videos"]:
+                # تيك توك يصنف الستوري كـ is_story=True أو aweme_type=68/69
+                if item.get("is_story") or item.get("aweme_type") in [68, 69, 101]:
+                    stories.append(item)
+    except: pass
+
+    # المحاولة 2: مسار الستوري المباشر عبر RapidAPI (إذا لم ينجح الأول)
+    if not stories:
+        try:
+            res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=headers_rapid, params={"unique_id": unique_id}, timeout=8).json()
+            if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
+                stories = res["data"]["itemList"]
+        except: pass
+
+    # المحاولة 3: التفتيش في فيديوهات الحساب العادية للعثور على ستوري مدمجة (Story Hunter)
+    if not stories:
+        try:
+            res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/posts", headers=headers_rapid, params={"unique_id": unique_id, "count": 10}, timeout=8).json()
+            if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
+                for item in res["data"]["itemList"]:
+                    if item.get("isStory") or item.get("storyType") or item.get("awemeType") in [68, 69, 101]:
+                        stories.append(item)
+        except: pass
+
+    return stories
 
 # === دوال مساعدة ===
 def is_subscribed(chat_id, user_id):
@@ -171,14 +138,13 @@ def get_yes_no(val): return "نعم ✅" if val else "لا ❌"
 def get_privacy(val): return "للجميع 🌍" if val == 0 else "مغلق ❌"
 
 def get_country_info(code):
-    if not code: return "غير محددة", ""
+    if not code or code.upper() == "ZZ": return "غير محددة", ""
     return COUNTRIES.get(code.upper(), (code, ""))
 
 def get_language_name(code):
     if not code: return "غير محددة"
-    # أخذ أول جزئية من كود اللغة (مثلا ar-SA تصبح ar)
     base_code = code.split("-")[0].lower()
-    return LANGUAGES.get(base_code, code) # إذا لم يجدها في القاموس يعرض الرمز
+    return LANGUAGES.get(base_code, code)
 
 def get_account_level(followers):
     if followers > 1000000: return "أسطوري 🌟"
@@ -272,11 +238,11 @@ def callback_query(call):
 
         if action == "country":
             bot.answer_callback_query(call.id)
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nتم استخراج الدولة باستخدام نظام السحب الهجين من سيرفرات تيك توك للمستخدم @{target_username}.", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nتم استخراج الدولة بدقة لـ @{target_username}.", parse_mode="Markdown")
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
-            data = fetch_user_data_hybrid(target_username)
+            data = fetch_user_data_pro(target_username)
             if data and data.get("stats"):
                 followers = data.get("stats", {}).get("followerCount", 0)
                 bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
@@ -284,7 +250,7 @@ def callback_query(call):
             
         elif action == "contact":
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
-            data = fetch_user_data_hybrid(target_username)
+            data = fetch_user_data_pro(target_username)
             if data and data.get("user"):
                 bio = data.get("user", {}).get("signature", "")
                 emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
@@ -310,37 +276,15 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # استخراج الستوري - المسار المعزز
+        # استخراج الستوري - باستخدام خوارزمية الـ Hunter القوية
         elif action == "story":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوريات...")
-            url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
-            headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات...")
             
-            story_data = None
-            try:
-                # 1. محاولة بالـ API مع UID
-                res = requests.get(url, headers=headers, params={"user_id": target_uid}).json()
-                if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
-                    story_data = res["data"]["itemList"]
-            except: pass
+            stories = hunt_for_stories(target_username, target_uid)
 
-            if not story_data:
-                try:
-                    # 2. محاولة بالـ API مع اليوزر
-                    res = requests.get(url, headers=headers, params={"unique_id": target_username}).json()
-                    if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
-                        story_data = res["data"]["itemList"]
-                except: pass
-
-            if not story_data:
-                # 3. محاولة السحب المباشر كخيار أخير للستوري
-                scraped = advanced_tiktok_scraper(target_username)
-                if scraped.get("stories"):
-                    story_data = scraped["stories"]
-
-            if story_data:
-                story_count = len(story_data)
+            if stories:
+                story_count = len(stories)
                 text = f"<b>تم العثور على ستوريات لهذا الشخص</b>\n\n"
                 text += f"المستخدم: @{target_username}\n"
                 text += f"عدد الستوريات: {story_count}"
@@ -362,47 +306,36 @@ def callback_query(call):
         target_uid = parts[3] if len(parts) > 3 else ""
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
-        url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
-        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         
-        story_data = None
-        try:
-            res = requests.get(url, headers=headers, params={"user_id": target_uid}).json()
-            if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
-                story_data = res["data"]["itemList"]
-        except: pass
+        stories = hunt_for_stories(target_username, target_uid)
 
-        if not story_data:
-            try:
-                res = requests.get(url, headers=headers, params={"unique_id": target_username}).json()
-                if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
-                    story_data = res["data"]["itemList"]
-            except: pass
-
-        if not story_data:
-            scraped = advanced_tiktok_scraper(target_username)
-            if scraped.get("stories"):
-                story_data = scraped["stories"]
-
-        if story_data and story_index < len(story_data):
-            story = story_data[story_index]
+        if stories and story_index < len(stories):
+            story = stories[story_index]
             
-            author_nick = story.get("author", {}).get("nickname", "بدون اسم")
-            stats = story.get("stats", {})
-            music_title = story.get("music", {}).get("title", "الصوت الأصلي")
-            music_url = story.get("music", {}).get("playUrl", "")
+            # استخراج بيانات الستوري سواء كانت بصيغة RapidAPI أو TikWM
+            author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
+            
+            stats = story.get("stats", {}) if "stats" in story else story
+            views = stats.get("playCount") or stats.get("play_count", 0)
+            likes = stats.get("diggCount") or stats.get("digg_count", 0)
+            shares = stats.get("shareCount") or stats.get("share_count", 0)
+            
+            music_title = story.get("music", {}).get("title") or story.get("music_info", {}).get("title", "الصوت الأصلي")
+            music_url = story.get("music", {}).get("playUrl") or story.get("music_info", {}).get("play", "")
             
             text = f"ستوري #{story_index+1}\nالاسم: {author_nick}\n"
-            text += f"المشاهدات: {stats.get('playCount', 0)}\nاللايكات: {stats.get('diggCount', 0)}\nالمشاركات: {stats.get('shareCount', 0)}"
+            text += f"المشاهدات: {views}\nاللايكات: {likes}\nالمشاركات: {shares}"
             
-            video_url = story.get("video", {}).get("playAddr", "")
-            images = story.get("imagePost", {}).get("images", [])
+            video_url = story.get("video", {}).get("playAddr") or story.get("play")
+            images = story.get("imagePost", {}).get("images") or story.get("images", [])
             
             msg = bot.send_message(call.message.chat.id, "⏳ جاري الإرسال...")
             
             try:
                 if video_url: bot.send_video(call.message.chat.id, video_url, caption=text, parse_mode="HTML")
-                elif images: bot.send_photo(call.message.chat.id, images[0].get("imageURL", {}).get("urlList", [""])[0], caption=text, parse_mode="HTML")
+                elif images:
+                    img_url = images[0].get("imageURL", {}).get("urlList", [""])[0] if isinstance(images[0], dict) else images[0]
+                    bot.send_photo(call.message.chat.id, img_url, caption=text, parse_mode="HTML")
                 else: bot.send_message(call.message.chat.id, "⚠️ الستوري غير مدعومة.")
             except: bot.send_message(call.message.chat.id, "⚠️ فشل إرسال الوسائط.")
                 
@@ -425,18 +358,19 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(السحب المباشر)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(السحب المباشر المطور)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # استخدام دالة المسح الهجين الشامل
-        data = fetch_user_data_hybrid(username)
+        # استخدام دالة المسح الاحترافي
+        data = fetch_user_data_pro(username)
 
         if data and data.get("user"):
             user = data.get("user", {})
             stats = data.get("stats", {})
 
+            # استخراج الدولة بدقة قوية
             region_code = user.get("region") or user.get("country") or user.get("iso3166") or ""
             country_name, country_flag = get_country_info(region_code)
 
@@ -487,7 +421,7 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # بناء النص مع التوقيع المطلوب
+            # بناء النص مع التوقيع المطلوب حرفياً
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
