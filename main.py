@@ -74,7 +74,7 @@ def get_account_level(followers):
     elif followers > 1000: return "نشط 🚀"
     else: return "مبتدئ 🐣"
 
-# --- لوحة المفاتيح السفلية الدائمة (تم إصلاح المشكلة هنا) ---
+# --- لوحة المفاتيح السفلية الدائمة (تم حل المشكلة فيها) ---
 def get_main_reply_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(KeyboardButton("🚀 START"), KeyboardButton("🛠 الخدمات"))
@@ -111,7 +111,7 @@ def send_welcome(message):
         return
 
     register_user(user_id, first_name, username)
-    bot.send_message(message.chat.id, "✅ تم تحديث القائمة السفلية بنجاح.", reply_markup=get_main_reply_keyboard())
+    bot.send_message(message.chat.id, "✅ تم تفعيل الكيبورد السفلي بنجاح.", reply_markup=get_main_reply_keyboard())
     send_main_menu(message.chat.id, first_name)
 
 # التقاط الأزرار السفلية الدائمة
@@ -181,12 +181,12 @@ def callback_query(call):
         action = parts[1]
         target_username = parts[2] if len(parts) > 2 else ""
 
-        bot.answer_callback_query(call.id, "⏳ جاري تنفيذ الطلب...")
-
         if action == "country":
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من خوادم تيك توك، وهي تمثل الدولة التي تم تسجيل الحساب منها للمستخدم: @{target_username}", parse_mode="Markdown")
+            bot.answer_callback_query(call.id, "🌍 يتم جلب الدولة من خوادم تيك توك.")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من إعدادات الحساب الفعلية في تيك توك، وهي تعكس الدولة التي تم تسجيل الحساب منها للمستخدم: @{target_username}", parse_mode="Markdown")
         
         elif action == "level":
+            bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
             try:
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
@@ -198,6 +198,7 @@ def callback_query(call):
                 bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال بالخادم.")
             
         elif action == "contact":
+            bot.answer_callback_query(call.id, "⏳ جاري البحث عن طرق تواصل...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
             try:
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
@@ -213,25 +214,13 @@ def callback_query(call):
             except:
                 bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
-        elif action == "story":
-            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوري...")
-            url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
-            try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
-                if res.get("code") == 0 and res.get("data"):
-                    bot.edit_message_text("✅ تم العثور على ستوري.\n\n🎬 **تنبيه:** عرض الستوريات المباشر (الفيديو) يحتاج لترقية باقة RapidAPI، هذه الباقة تسحب البيانات النصية حالياً.", chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-                else:
-                    bot.edit_message_text("❌ لا توجد ستوري نشطة لهذا الحساب حالياً، أو الحساب خاص.", chat_id=call.message.chat.id, message_id=msg.message_id)
-            except:
-                bot.edit_message_text("⚠️ تعذر الاتصال بخادم الستوري.", chat_id=call.message.chat.id, message_id=msg.message_id)
-
         elif action in ["followers", "following"]:
             endpoint = "user/followers" if action == "followers" else "user/followings"
+            bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
             url = f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}"
             try:
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username, "count": 10}).json()
-                
                 if res.get("code") == 0 and res.get("data") and "userList" in res["data"]:
                     usersList = res["data"]["userList"]
                     if not usersList:
@@ -245,6 +234,97 @@ def callback_query(call):
                     bot.edit_message_text("⚠️ تعذر جلب القائمة. قد يكون الحساب خاصاً أو هناك قيود على الـ API المجاني.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except:
                 bot.edit_message_text("⚠️ خطأ في الاتصال بالخادم.", chat_id=call.message.chat.id, message_id=msg.message_id)
+
+        # --- دالة جلب الستوريات وعرض الأزرار المرقمة ---
+        elif action == "story":
+            bot.answer_callback_query(call.id)
+            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوريات...")
+            url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
+            try:
+                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
+                if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
+                    stories = res["data"]["itemList"]
+                    story_count = len(stories)
+                    uid = stories[0].get("author", {}).get("id", "غير معروف")
+                    
+                    text = f"<b>تم العثور على ستوريات لهذا الشخص</b>\n\n"
+                    text += f"المستخدم: @{target_username}\n"
+                    text += f"<code>{uid}</code>\n"
+                    text += f"عدد الستوريات: {story_count}"
+                    
+                    markup = InlineKeyboardMarkup(row_width=3)
+                    buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_username}") for i in range(story_count)]
+                    markup.add(*buttons)
+                    
+                    bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=markup)
+                else:
+                    bot.edit_message_text("❌ لا توجد ستوريات نشطة لهذا الحساب حالياً، أو الحساب خاص.", chat_id=call.message.chat.id, message_id=msg.message_id)
+            except Exception as e:
+                bot.edit_message_text("⚠️ تعذر الاتصال بخادم الستوري. جرب لاحقاً.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                print(e)
+        return
+
+    # === دالة إرسال الستوري الفعلي (بعد الضغط على زر الرقم) ===
+    if call.data.startswith("getstory_"):
+        parts = call.data.split("_")
+        story_index = int(parts[1])
+        target_username = parts[2]
+        
+        bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
+        
+        url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
+        try:
+            res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
+            if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
+                stories = res["data"]["itemList"]
+                if story_index < len(stories):
+                    story = stories[story_index]
+                    
+                    author_nick = story.get("author", {}).get("nickname", "بدون اسم")
+                    stats = story.get("stats", {})
+                    views = stats.get("playCount", 0)
+                    likes = stats.get("diggCount", 0)
+                    shares = stats.get("shareCount", 0)
+                    
+                    music_title = story.get("music", {}).get("title", "الصوت الأصلي")
+                    music_url = story.get("music", {}).get("playUrl", "")
+                    
+                    text = f"ستوري #{story_index+1}\n"
+                    text += f"اليوزر: @{target_username}\n"
+                    text += f"الاسم: {author_nick}\n"
+                    text += f"المشاهدات: {views}\n"
+                    text += f"اللايكات: {likes}\n"
+                    text += f"المشاركات: {shares}\n"
+                    
+                    video_url = story.get("video", {}).get("playAddr", "")
+                    images = story.get("imagePost", {}).get("images", [])
+                    
+                    msg = bot.send_message(call.message.chat.id, "⏳ جاري إرسال الميديا...")
+                    
+                    if video_url:
+                        bot.send_video(call.message.chat.id, video_url, caption=text, parse_mode="HTML")
+                    elif images:
+                        img_url = images[0].get("imageURL", {}).get("urlList", [""])[0]
+                        bot.send_photo(call.message.chat.id, img_url, caption=text, parse_mode="HTML")
+                    else:
+                        bot.send_message(call.message.chat.id, "⚠️ الستوري لا تحتوي على وسائط مدعومة.")
+                        
+                    bot.delete_message(chat_id=call.message.chat.id, message_id=msg.message_id)
+                    
+                    # إرسال الصوت كملف منفصل كما طلب المستخدم بالصورة
+                    if music_url:
+                        try:
+                            bot.send_audio(call.message.chat.id, music_url, caption=f"🎵 **{music_title}**\n@bdallhshay7", parse_mode="Markdown")
+                        except:
+                            # إذا فشل تيليجرام في رفع الصوت نرسله كزر مدمج
+                            audio_markup = InlineKeyboardMarkup()
+                            audio_markup.add(InlineKeyboardButton(f"🎧 {music_title}", url=music_url))
+                            bot.send_message(call.message.chat.id, f"🎵 **الصوت الأصلي**\n@bdallhshay7", parse_mode="Markdown", reply_markup=audio_markup)
+            else:
+                bot.send_message(call.message.chat.id, "❌ لم تعد الستوري متاحة.")
+        except Exception as e:
+            bot.send_message(call.message.chat.id, "⚠️ حدث خطأ أثناء تحميل الستوري.")
+            print(e)
         return
 
     # === دوال الإدارة ===
@@ -262,11 +342,11 @@ def callback_query(call):
             bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         elif call.data == "ban_user":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "⛔️ أرسل رقم الآي دي לחظر:\nأو أرسل /cancel")
+            msg = bot.send_message(call.message.chat.id, "⛔️ أرسل رقم الآي دي לחظر:\nأو أرسل /cancel", reply_markup=get_main_reply_keyboard())
             bot.register_next_step_handler(msg, process_ban)
         elif call.data == "unban_user":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "🔓 أرسل رقم الآي دي لفك الحظر:\nأو أرسل /cancel")
+            msg = bot.send_message(call.message.chat.id, "🔓 أرسل رقم الآي دي لفك الحظر:\nأو أرسل /cancel", reply_markup=get_main_reply_keyboard())
             bot.register_next_step_handler(msg, process_unban)
         elif call.data == "banned_list":
             bot.answer_callback_query(call.id)
@@ -279,7 +359,7 @@ def callback_query(call):
             bot.send_message(call.message.chat.id, text, parse_mode="HTML")
         elif call.data == "broadcast":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "📢 أرسل رسالة الإذاعة:\nأو أرسل /cancel")
+            msg = bot.send_message(call.message.chat.id, "📢 أرسل رسالة الإذاعة:\nأو أرسل /cancel", reply_markup=get_main_reply_keyboard())
             bot.register_next_step_handler(msg, process_broadcast)
 
 # ==========================================
@@ -304,7 +384,6 @@ def process_profile_link(message):
             user = res["data"].get("user", {})
             stats = res["data"].get("stats", {})
 
-            # استخراج الدولة
             region_code = user.get("region", "")
             country_name, country_flag = get_country_info(region_code)
 
@@ -350,7 +429,6 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # بناء النص
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
@@ -419,13 +497,13 @@ def process_profile_link(message):
 
 def process_download_link(message):
     if message.text == '/cancel':
-        bot.reply_to(message, "تم الإلغاء.")
+        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
         return
     bot.reply_to(message, f"⏳ سيتم برمجة التحميل قريباً...")
 
 def process_media_search(message):
     if message.text == '/cancel':
-        bot.reply_to(message, "تم الإلغاء.")
+        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
         return
     bot.reply_to(message, f"⏳ سيتم برمجة البحث قريباً...")
 
