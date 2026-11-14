@@ -58,7 +58,7 @@ def register_user(user_id, first_name, username):
     )
 
 def format_date(timestamp):
-    if not timestamp or timestamp == 0 or str(timestamp) == "0": return "غير متوفر"
+    if not timestamp or str(timestamp) == "0": return "غير متوفر"
     try:
         ts = int(timestamp)
         if len(str(ts)) > 10: ts = ts / 1000
@@ -78,6 +78,34 @@ def get_account_level(followers):
     elif followers > 10000: return "نجم صاعد ✨"
     elif followers > 1000: return "نشط 🚀"
     else: return "مبتدئ 🐣"
+
+# جلب بيانات المستخدم من نقطتي اتصال مختلفتين لضمان الشمولية
+def fetch_user_data(unique_id):
+    url_info = "https://tiktok-scraper7.p.rapidapi.com/user/info"
+    url_detail = "https://tiktok-scraper7.p.rapidapi.com/user/detail"
+    headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+    
+    data = {}
+    try:
+        # المحاولة الأولى: user/info
+        res_info = requests.get(url_info, headers=headers, params={"unique_id": unique_id}).json()
+        if res_info.get("code") == 0 and res_info.get("data"):
+            data.update(res_info["data"])
+    except: pass
+
+    try:
+        # المحاولة الثانية: user/detail لجلب البيانات المفقودة (مثل الدولة والأصدقاء)
+        # ملاحظة: بعض واجهات API تقبل unique_id وبعضها يطلب user_id. سنجرب unique_id أولاً
+        res_detail = requests.get(url_detail, headers=headers, params={"unique_id": unique_id}).json()
+        if res_detail.get("code") == 0 and res_detail.get("data"):
+            # دمج البيانات
+            if "user" in res_detail["data"]:
+                data.setdefault("user", {}).update(res_detail["data"]["user"])
+            if "stats" in res_detail["data"]:
+                data.setdefault("stats", {}).update(res_detail["data"]["stats"])
+    except: pass
+    
+    return data
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 
@@ -156,7 +184,7 @@ def callback_query(call):
         bot.register_next_step_handler(msg, process_profile_link)
         return
 
-    # الأزرار التفاعلية للبروفايل (نستخدم username الآن لضمان توافق جميع استعلامات الـ API)
+    # الأزرار التفاعلية (استخدام username للـ API بدلاً من uid لتجنب أخطاء تيك توك)
     if call.data.startswith("info_"):
         parts = call.data.split("_", 2)
         action = parts[1]
@@ -164,30 +192,26 @@ def callback_query(call):
 
         if action == "country":
             bot.answer_callback_query(call.id)
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من خوادم تيك توك بناءً على تسجيل الحساب لـ @{target_username}.", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nيتم جلب الدولة من خوادم تيك توك لـ @{target_username}.", parse_mode="Markdown")
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
-            url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
-            try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
-                if res.get("code") == 0:
-                    followers = res["data"]["stats"].get("followerCount", 0)
-                    bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
-            except: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
+            data = fetch_user_data(target_username)
+            if data:
+                followers = data.get("stats", {}).get("followerCount", 0)
+                bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
+            else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
             
         elif action == "contact":
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
-            url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
-            try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
-                if res.get("code") == 0:
-                    bio = res["data"]["user"].get("signature", "")
-                    emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
-                    phones = re.findall(r'\+?\d{8,15}', bio)
-                    text = f"📧 **معلومات التواصل:**\nالبريد: {', '.join(emails) if emails else 'غير متاح'}\nالرقم: {', '.join(phones) if phones else 'غير متاح'}"
-                    bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-            except: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
+            data = fetch_user_data(target_username)
+            if data:
+                bio = data.get("user", {}).get("signature", "")
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
+                phones = re.findall(r'\+?\d{8,15}', bio)
+                text = f"📧 **معلومات التواصل:**\nالبريد: {', '.join(emails) if emails else 'غير متاح'}\nالرقم: {', '.join(phones) if phones else 'غير متاح'}"
+                bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+            else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
         elif action in ["followers", "following"]:
             endpoint = "user/followers" if action == "followers" else "user/followings"
@@ -206,17 +230,17 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # دالة البحث عن الستوريات (تم إصلاح تمرير المتغير ليصبح unique_id)
+        # استخراج الستوري باستخدام unique_id
         elif action == "story":
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث عن ستوريات...")
             url = "https://tiktok-scraper7.p.rapidapi.com/user/story"
             try:
-                # الاستعلام يتطلب unique_id للستوري
                 res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username}).json()
                 if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                     stories = res["data"]["itemList"]
                     story_count = len(stories)
+                    uid = stories[0].get("author", {}).get("id", "غير معروف")
                     
                     text = f"<b>تم العثور على ستوريات لهذا الشخص</b>\n\n"
                     text += f"المستخدم: @{target_username}\n"
@@ -233,7 +257,7 @@ def callback_query(call):
                 bot.edit_message_text("⚠️ تعذر الاتصال بخادم الستوري.", chat_id=call.message.chat.id, message_id=msg.message_id)
         return
 
-    # زر جلب الستوري الفعلي 
+    # عرض الستوري الفعلي
     if call.data.startswith("getstory_"):
         parts = call.data.split("_", 2)
         story_index = int(parts[1])
@@ -250,7 +274,6 @@ def callback_query(call):
                     
                     author_nick = story.get("author", {}).get("nickname", "بدون اسم")
                     stats = story.get("stats", {})
-                    
                     music_title = story.get("music", {}).get("title", "الصوت الأصلي")
                     music_url = story.get("music", {}).get("playUrl", "")
                     
@@ -273,7 +296,7 @@ def callback_query(call):
                         audio_markup.add(InlineKeyboardButton(f"🎧 {music_title}", url=music_url))
                         bot.send_message(call.message.chat.id, f"🎵 **الصوت الأصلي**\n{BOT_USERNAME}", parse_mode="Markdown", reply_markup=audio_markup)
             else: bot.send_message(call.message.chat.id, "❌ لم تعد الستوري متاحة.")
-        except Exception as e: bot.send_message(call.message.chat.id, "⚠️ حدث خطأ.")
+        except Exception: bot.send_message(call.message.chat.id, "⚠️ حدث خطأ.")
         return
 
 # ==========================================
@@ -291,31 +314,29 @@ def process_profile_link(message):
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        url = "https://tiktok-scraper7.p.rapidapi.com/user/info"
-        res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": username}).json()
+        # استخدام الدالة المزدوجة لضمان الشمولية
+        data = fetch_user_data(username)
 
-        if res.get("code") == 0 and res.get("data"):
-            user = res["data"].get("user", {})
-            stats = res["data"].get("stats", {})
-            userInfo = user.get("userInfo", {}) # في بعض الاستجابات تكون ضمن userInfo
+        if data:
+            user = data.get("user", {})
+            stats = data.get("stats", {})
 
-            # مسح مزدوج للمنطقة لضمان جلب الدولة
-            region_code = user.get("region") or userInfo.get("region") or user.get("country") or user.get("iso3166") or ""
+            # استخراج الدولة بدقة
+            region_code = user.get("region") or user.get("country") or user.get("iso3166") or ""
             country_name, country_flag = get_country_info(region_code)
 
             uid = user.get("id", "غير متوفر")
             nickname = user.get("nickname", "غير متوفر")
             
-            # مسح مزدوج للأصدقاء والمتابعين
-            followers = stats.get("followerCount") or user.get("followerCount", 0)
-            following = stats.get("followingCount") or user.get("followingCount", 0)
-            friends = stats.get("friendCount") or user.get("friendCount", 0)
-            hearts = stats.get("heartCount") or user.get("heartCount", 0)
-            videos = stats.get("videoCount") or user.get("videoCount", 0)
+            # استخراج الإحصائيات (تم دمجها من الاستعلامين)
+            followers = stats.get("followerCount", 0)
+            following = stats.get("followingCount", 0)
+            friends = stats.get("friendCount", 0)
+            hearts = stats.get("heartCount", 0)
+            videos = stats.get("videoCount", 0)
             
-            # مسح مزدوج لتواريخ التعديل
-            create_time = format_date(user.get("createTime") or userInfo.get("createTime"))
-            modify_time = format_date(user.get("nickNameModifyTime") or userInfo.get("nickNameModifyTime"))
+            create_time = format_date(user.get("createTime"))
+            modify_time = format_date(user.get("nickNameModifyTime"))
             
             language = user.get("language", "English")
             is_verified = get_yes_no(user.get("verified", False))
@@ -348,7 +369,7 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # تنسيق النص
+            # بناء النص
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
@@ -389,7 +410,7 @@ def process_profile_link(message):
             text += f"البايو: {bio}\n"
             text += f"الرابط في البايو: {bio_link}"
 
-            # تمرير اليوزر (username) لضمان توافق أزرار الخدمات والستوري
+            # استخدام username للأزرار لضمان التوافق مع API الستوري
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}"))
             markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}"), 
@@ -413,6 +434,48 @@ def process_profile_link(message):
 
     except Exception as e:
         bot.edit_message_text("⚠️ حدث خطأ في الاتصال.", chat_id=message.chat.id, message_id=msg.message_id)
+
+def process_download_link(message):
+    if message.text == '/cancel':
+        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
+        return
+    bot.reply_to(message, f"⏳ سيتم برمجة التحميل قريباً...")
+
+def process_media_search(message):
+    if message.text == '/cancel':
+        bot.reply_to(message, "تم الإلغاء.", reply_markup=get_main_reply_keyboard())
+        return
+    bot.reply_to(message, f"⏳ سيتم برمجة البحث قريباً...")
+
+def process_ban(message):
+    if message.text == "/cancel": return
+    try:
+        tid = int(message.text.strip())
+        if tid in ADMIN_IDS: return bot.reply_to(message, "⚠️ لا يمكن حظر الآدمن.")
+        users_collection.update_one({"_id": tid}, {"$set": {"is_banned": True}})
+        bot.reply_to(message, f"✅ تم الحظر.")
+    except:
+        bot.reply_to(message, "⚠️ أرسل أرقام فقط.")
+
+def process_unban(message):
+    if message.text == "/cancel": return
+    try:
+        tid = int(message.text.strip())
+        users_collection.update_one({"_id": tid}, {"$set": {"is_banned": False}})
+        bot.reply_to(message, f"✅ تم فك الحظر.")
+    except:
+        bot.reply_to(message, "⚠️ أرسل أرقام فقط.")
+
+def process_broadcast(message):
+    if message.text == "/cancel": return
+    bot.reply_to(message, "⏳ جاري الإذاعة...")
+    success, failed = 0, 0
+    for u in users_collection.find({"is_banned": False}):
+        try:
+            bot.copy_message(u["_id"], message.chat.id, message.message_id)
+            success += 1
+        except: failed += 1
+    bot.reply_to(message, f"✅ تمت الإذاعة بنجاح.\nوصلت إلى {success}")
 
 # ==========================================
 # 🌐 إعدادات سيرفر Render (Webhook) 🌐
