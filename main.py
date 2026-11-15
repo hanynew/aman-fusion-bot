@@ -33,9 +33,9 @@ users_collection = db['users']
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 
+# إعادة المفتاح والواجهة الأصلية التي اشتركت بها لضمان عملها
 RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
-# نستخدم الآن API أكثر احترافية وموثوقية لجلب التفاصيل المخفية
-RAPID_API_HOST_MAIN = "tiktok-api23.p.rapidapi.com" 
+RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
 
 # ==========================================
 # 🌍 القواميس (الدول واللغات) 🌍
@@ -58,59 +58,73 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك جلب البيانات الحصري (Glavier API) 🥷
+# 🥷 محرك جلب البيانات الشامل (Triple-Mesh) 🥷
 # ==========================================
 def fetch_pro_data(username):
     data = {"user": {}, "stats": {}}
     
-    headers = {
-        "x-rapidapi-key": RAPID_API_KEY,
-        "x-rapidapi-host": RAPID_API_HOST_MAIN
-    }
-    
+    # 1. الطبقة الأولى: TiklyDown (واجهة قوية جداً تجلب الأصدقاء والدولة بدون حظر)
     try:
-        # استدعاء واجهة معلومات المستخدم التفصيلية
-        res = requests.get("https://tiktok-api23.p.rapidapi.com/api/user/info", headers=headers, params={"uniqueId": username}, timeout=15)
-        
+        res = requests.get(f"https://api.tiklydown.eu.org/api/user?user={username}", timeout=12)
         if res.status_code == 200:
             js = res.json()
-            if js.get("userInfo"):
-                u_info = js["userInfo"].get("user", {})
-                s_info = js["userInfo"].get("stats", {})
-                
-                data["user"] = {
-                    "id": u_info.get("id", ""),
-                    "nickname": u_info.get("nickname", ""),
-                    "signature": u_info.get("signature", ""),
-                    "avatarLarger": u_info.get("avatarLarger", ""),
-                    "region": u_info.get("region", ""),
-                    "language": u_info.get("language", "en"),
-                    "verified": u_info.get("verified", False),
-                    "secret": u_info.get("secret", False),
-                    "createTime": u_info.get("createTime", 0),
-                    "nickNameModifyTime": u_info.get("nickNameModifyTime", 0)
-                }
-                
-                data["stats"] = {
-                    "followerCount": s_info.get("followerCount", 0),
-                    "followingCount": s_info.get("followingCount", 0),
-                    "heartCount": s_info.get("heartCount", 0),
-                    "videoCount": s_info.get("videoCount", 0),
-                    "friendCount": s_info.get("friendCount", 0) 
-                }
+            data["user"]["id"] = js.get("id", "")
+            data["user"]["nickname"] = js.get("name", "")
+            data["user"]["signature"] = js.get("signature", "")
+            data["user"]["avatarLarger"] = js.get("avatar", "")
+            data["user"]["region"] = js.get("region", "")
+            data["user"]["verified"] = js.get("verified", False)
+            
+            if "stats" in js:
+                data["stats"]["followerCount"] = js["stats"].get("followerCount", 0)
+                data["stats"]["followingCount"] = js["stats"].get("followingCount", 0)
+                data["stats"]["heartCount"] = js["stats"].get("heartCount", 0)
+                data["stats"]["videoCount"] = js["stats"].get("videoCount", 0)
+                data["stats"]["friendCount"] = js["stats"].get("friendCount", 0)
     except Exception as e:
-        print(f"Glavier API Error: {e}")
+        print(f"TiklyDown Error: {e}")
 
-    # إذا ظلت الدولة مخفية أو US، نبحث في فيديوهات المستخدم لجلب دولة الرفع الحقيقية
+    # 2. الطبقة الثانية: RapidAPI (التي تملك مفتاحها كضمان أساسي)
+    try:
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data"):
+                r_user = js["data"].get("user", {})
+                r_stats = js["data"].get("stats", {})
+                for k, v in r_user.items():
+                    if k == "region" and (v == "US" or not v): continue
+                    if not data["user"].get(k): data["user"][k] = v
+                for k, v in r_stats.items():
+                    if not data["stats"].get(k): data["stats"][k] = v
+    except Exception as e:
+        print(f"RapidAPI Error: {e}")
+
+    # 3. الطبقة الثالثة: TikWM لسد أي نواقص متبقية
+    try:
+        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=10)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data"):
+                u_data = js["data"].get("user", {})
+                s_data = js["data"].get("stats", {})
+                for k, v in u_data.items():
+                    if not data["user"].get(k): data["user"][k] = v
+                for k, v in s_data.items():
+                    if not data["stats"].get(k): data["stats"][k] = v
+    except Exception as e:
+        pass
+
+    # صائد الدولة العميق إذا فشلت كل الـ APIs
     curr_region = data["user"].get("region", "")
     if not curr_region or curr_region.upper() == "US":
         try:
-            res_posts = requests.get("https://tiktok-api23.p.rapidapi.com/api/user/posts", headers=headers, params={"uniqueId": username, "count": 3}, timeout=10)
-            if res_posts.status_code == 200:
-                js_posts = res_posts.json()
-                if js_posts.get("itemList") and len(js_posts["itemList"]) > 0:
-                    author_data = js_posts["itemList"][0].get("author", {})
-                    vid_region = author_data.get("region")
+            res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=1", timeout=8)
+            if res.status_code == 200:
+                js = res.json()
+                if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
+                    vid_region = js["data"]["videos"][0].get("region")
                     if vid_region:
                         data["user"]["region"] = vid_region
         except Exception as e:
@@ -121,23 +135,31 @@ def fetch_pro_data(username):
 def master_story_hunter(username):
     stories = []
     
-    headers = {
-        "x-rapidapi-key": RAPID_API_KEY,
-        "x-rapidapi-host": RAPID_API_HOST_MAIN
-    }
-    
-    # صيد الستوري من واجهة المنشورات المدمجة
+    # 1. صيد الستوري من واجهة المنشورات الشاملة (TikWM) - الخيار الأقوى
     try:
-        res = requests.get("https://tiktok-api23.p.rapidapi.com/api/user/posts", headers=headers, params={"uniqueId": username, "count": 20}, timeout=15)
+        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=15", timeout=12)
         if res.status_code == 200:
             js = res.json()
-            if js.get("itemList"):
-                for v in js["itemList"]:
-                    if v.get("isStory") == True or v.get("storyType") or v.get("awemeType") in [68, 69, 101]:
+            if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
+                for v in js["data"]["videos"]:
+                    if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
                         stories.append(v)
     except Exception as e:
-        print(f"Story Fetch Error: {e}")
+        print(f"Story Error 1: {e}")
 
+    if stories: return stories
+
+    # 2. صيد الستوري من واجهة RapidAPI كاحتياطي
+    try:
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=12)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data") and js["data"].get("itemList"):
+                stories = js["data"]["itemList"]
+    except Exception as e:
+        print(f"Story Error 2: {e}")
+    
     return stories
 
 # ==========================================
@@ -278,11 +300,34 @@ def callback_query(call):
             
         elif action == "contact":
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
-            bot.send_message(call.message.chat.id, "⚠️ هذه الميزة معطلة حالياً.", parse_mode="Markdown")
+            data = fetch_pro_data(target_username)
+            if data and data.get("user"):
+                bio = data.get("user", {}).get("signature", "")
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
+                phones = re.findall(r'\+?\d{8,15}', bio)
+                text = f"📧 **معلومات التواصل:**\nالبريد: {', '.join(emails) if emails else 'غير متاح'}\nالرقم: {', '.join(phones) if phones else 'غير متاح'}"
+                bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+            else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
         elif action in ["followers", "following"]:
-            bot.answer_callback_query(call.id, "هذه الميزة معطلة حالياً لتحديثات الأمان.")
-            return
+            endpoint = "user/followers" if action == "followers" else "user/followings"
+            bot.answer_callback_query(call.id)
+            msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
+            try:
+                rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+                res = requests.get(f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}", headers=rapid_headers, params={"unique_id": target_username, "count": 10}, timeout=10)
+                if res.status_code == 200:
+                    res_json = res.json()
+                    if res_json.get("code") == 0 and res_json.get("data") and "userList" in res_json["data"]:
+                        usersList = res_json["data"]["userList"]
+                        if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                        else:
+                            text = "👥 **أحدث الحسابات:**\n\n"
+                            for u in usersList[:10]: text += f"👤 {u.get('user', {}).get('nickname', 'بدون اسم')} | `@{u.get('user', {}).get('uniqueId', '')}`\n"
+                            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+                    else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                else: bot.edit_message_text("⚠️ خطأ في الاتصال بالسيرفر.", chat_id=call.message.chat.id, message_id=msg.message_id)
+            except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
         elif action == "story":
             bot.answer_callback_query(call.id)
@@ -318,29 +363,28 @@ def callback_query(call):
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            author_data = story.get("author", {})
-            author_nick = author_data.get("nickname", "بدون اسم")
+            author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
             
-            stats = story.get("stats", {})
-            views = stats.get("playCount", 0)
-            likes = stats.get("diggCount", 0)
-            shares = stats.get("shareCount", 0)
+            stats = story.get("stats", {}) if "stats" in story else story
+            views = stats.get("playCount") or stats.get("play_count", 0)
+            likes = stats.get("diggCount") or stats.get("digg_count", 0)
+            shares = stats.get("shareCount") or stats.get("share_count", 0)
             
-            music_title = story.get("music", {}).get("title", "الصوت الأصلي")
-            music_url = story.get("music", {}).get("playUrl", "")
+            music_title = story.get("music", {}).get("title") or story.get("music_info", {}).get("title", "الصوت الأصلي")
+            music_url = story.get("music", {}).get("playUrl") or story.get("music_info", {}).get("play", "")
             
             text = f"ستوري #{story_index+1}\nالاسم: {author_nick}\n"
             text += f"المشاهدات: {views}\nاللايكات: {likes}\nالمشاركات: {shares}"
             
-            video_url = story.get("video", {}).get("playAddr", "")
-            images = story.get("imagePost", {}).get("images", [])
+            video_url = story.get("play") or story.get("video", {}).get("playAddr") 
+            images = story.get("images") or story.get("imagePost", {}).get("images", [])
             
             msg = bot.send_message(call.message.chat.id, "⏳ جاري الإرسال...")
             
             try:
                 if video_url: bot.send_video(call.message.chat.id, video_url, caption=text, parse_mode="HTML")
                 elif images:
-                    img_url = images[0].get("imageURL", {}).get("urlList", [""])[0] if isinstance(images[0], dict) else images[0]
+                    img_url = images[0] if isinstance(images[0], str) else images[0].get("imageURL", {}).get("urlList", [""])[0]
                     bot.send_photo(call.message.chat.id, img_url, caption=text, parse_mode="HTML")
                 else: bot.send_message(call.message.chat.id, "⚠️ الستوري غير مدعومة.")
             except: bot.send_message(call.message.chat.id, "⚠️ فشل إرسال الوسائط.")
@@ -364,12 +408,11 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(Glavier API)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة (Multi-API Engine)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # 🚀 استدعاء المحرك القوي
         data = fetch_pro_data(username)
 
         # التأكد من أن هناك بيانات فعلية تم جلبها
