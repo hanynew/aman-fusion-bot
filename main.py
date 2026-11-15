@@ -1,17 +1,28 @@
 import os
 import io
+import re
 import json
 import telebot
 import certifi
 import requests
+import cloudscraper
 from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
 
 # ==========================================
-# ⚙️ إعدادات تشغيل Vercel الأساسية ⚙️
+# ⚙️ إعدادات تشغيل السيرفر والمحرك ⚙️
 # ==========================================
 app = Flask(__name__)
+
+# محرك تخطي الحماية (Cloudflare Bypass)
+scraper = cloudscraper.create_scraper(
+    browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    }
+)
 
 # ==========================================
 # ⚙️ إعدادات البوت وقاعدة البيانات ⚙️
@@ -31,6 +42,9 @@ users_collection = db['users']
 
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
+
+RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
+RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
 
 # ==========================================
 # 🌍 القواميس (الدول واللغات) 🌍
@@ -53,55 +67,85 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك النينجا الحصري (Tik.Ninja API Interceptor) 🥷
+# 🥷 محرك الاختراق العميق (Anti-Cloudflare) 🥷
 # ==========================================
-def fetch_ninja_data(username):
-    """
-    هذه الدالة تعتمد حصرياً على واجهة Tik.Ninja المخفية لجلب البيانات كاملة.
-    """
-    data = {"user": {}, "stats": {}, "stories": []}
+def fetch_pro_data(username):
+    data = {"user": {}, "stats": {}}
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Content-Type": "application/json",
-        "Origin": "https://tik.ninja",
-        "Referer": "https://tik.ninja/tiktok-story-viewer"
-    }
-    
-    # 1. جلب بيانات الحساب الشاملة (الدولة، الأصدقاء، التواريخ)
+    # 1. اختراق واجهة الموبايل لجلب البيانات الشاملة
     try:
-        # واجهة الـ download في نينجا تعيد تفاصيل اليوزر بدقة عالية
-        payload = {"url": f"https://www.tiktok.com/@{username}"}
-        res = requests.post("https://tik.ninja/api/download", headers=headers, json=payload, timeout=15)
-        
+        res = scraper.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=15)
         if res.status_code == 200:
-            ninja_json = res.json()
-            if "author" in ninja_json:
-                data["user"] = ninja_json["author"]
-            if "statistics" in ninja_json:
-                data["stats"] = ninja_json["statistics"]
+            js = res.json()
+            if js.get("code") == 0 and js.get("data"):
+                data["user"].update(js["data"].get("user", {}))
+                data["stats"].update(js["data"].get("stats", {}))
     except Exception as e:
-        print(f"Ninja Profile Fetch Error: {e}")
+        print(f"Cloudscraper Fetch Error: {e}")
 
-    # 2. صيد الستوري مباشرة من واجهة الستوري الخاصة بنينجا
+    # 2. الاستعانة بـ RapidAPI إذا كان هناك نقص
     try:
-        payload_story = {"username": username}
-        res_story = requests.post("https://tik.ninja/api/story", headers=headers, json=payload_story, timeout=15)
-        
-        if res_story.status_code == 200:
-            story_json = res_story.json()
-            if isinstance(story_json, list):
-                data["stories"] = story_json
-            elif isinstance(story_json, dict):
-                if "stories" in story_json:
-                    data["stories"] = story_json["stories"]
-                elif "data" in story_json:
-                    data["stories"] = story_json["data"]
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data"):
+                r_user = js["data"].get("user", {})
+                r_stats = js["data"].get("stats", {})
+                
+                for k, v in r_user.items():
+                    if k == "region" and (v == "US" or not v): continue
+                    if not data["user"].get(k): data["user"][k] = v
+                for k, v in r_stats.items():
+                    if not data["stats"].get(k): data["stats"][k] = v
     except Exception as e:
-        print(f"Ninja Story Fetch Error: {e}")
+        print(f"RapidAPI Fetch Error: {e}")
+
+    # 3. صائد الدولة الحقيقي من الفيديوهات
+    curr_region = data["user"].get("region", "")
+    if not curr_region or curr_region.upper() == "US":
+        try:
+            res = scraper.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=3", timeout=10)
+            if res.status_code == 200:
+                js = res.json()
+                if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
+                    vid_region = js["data"]["videos"][0].get("region")
+                    if vid_region:
+                        data["user"]["region"] = vid_region
+        except Exception as e:
+            print(f"Region Hunt Error: {e}")
 
     return data
+
+def master_story_hunter(username):
+    stories = []
+    
+    # 1. صيد الستوري باختراق واجهة المنشورات
+    try:
+        res = scraper.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20", timeout=15)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
+                for v in js["data"]["videos"]:
+                    if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
+                        stories.append(v)
+    except Exception as e:
+        print(f"Cloudscraper Story Error: {e}")
+
+    if stories: return stories
+
+    # 2. صيد الستوري من RapidAPI
+    try:
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=10)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data") and js["data"].get("itemList"):
+                stories = js["data"]["itemList"]
+    except Exception as e:
+        print(f"RapidAPI Story Error: {e}")
+    
+    return stories
 
 # ==========================================
 # 🛠️ دوال المساعدة والتنسيق 🛠️
@@ -233,7 +277,7 @@ def callback_query(call):
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
-            data = fetch_ninja_data(target_username)
+            data = fetch_pro_data(target_username)
             if data and data.get("stats"):
                 followers = data.get("stats", {}).get("followerCount", 0)
                 bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
@@ -241,18 +285,40 @@ def callback_query(call):
             
         elif action == "contact":
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
-            bot.send_message(call.message.chat.id, "⚠️ هذه الميزة معطلة حالياً.", parse_mode="Markdown")
+            data = fetch_pro_data(target_username)
+            if data and data.get("user"):
+                bio = data.get("user", {}).get("signature", "")
+                emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
+                phones = re.findall(r'\+?\d{8,15}', bio)
+                text = f"📧 **معلومات التواصل:**\nالبريد: {', '.join(emails) if emails else 'غير متاح'}\nالرقم: {', '.join(phones) if phones else 'غير متاح'}"
+                bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
+            else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
         elif action in ["followers", "following"]:
-            bot.answer_callback_query(call.id, "هذه الميزة معطلة حالياً لتحديثات الأمان.")
-            return
+            endpoint = "user/followers" if action == "followers" else "user/followings"
+            bot.answer_callback_query(call.id)
+            msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
+            try:
+                rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+                res = requests.get(f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}", headers=rapid_headers, params={"unique_id": target_username, "count": 10}, timeout=10)
+                if res.status_code == 200:
+                    res_json = res.json()
+                    if res_json.get("code") == 0 and res_json.get("data") and "userList" in res_json["data"]:
+                        usersList = res_json["data"]["userList"]
+                        if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                        else:
+                            text = "👥 **أحدث الحسابات:**\n\n"
+                            for u in usersList[:10]: text += f"👤 {u.get('user', {}).get('nickname', 'بدون اسم')} | `@{u.get('user', {}).get('uniqueId', '')}`\n"
+                            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+                    else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                else: bot.edit_message_text("⚠️ خطأ في الاتصال بالسيرفر.", chat_id=call.message.chat.id, message_id=msg.message_id)
+            except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
         elif action == "story":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات (محرك نينجا)...")
+            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات...")
             
-            data = fetch_ninja_data(target_username)
-            stories = data.get("stories", [])
+            stories = master_story_hunter(target_username)
 
             if stories:
                 story_count = len(stories)
@@ -277,13 +343,12 @@ def callback_query(call):
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
         
-        data = fetch_ninja_data(target_username)
-        stories = data.get("stories", [])
+        stories = master_story_hunter(target_username)
 
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            author_nick = story.get("author", {}).get("nickname", "بدون اسم")
+            author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
             
             stats = story.get("stats", {}) if "stats" in story else story
             views = stats.get("playCount") or stats.get("play_count", 0)
@@ -328,13 +393,13 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك نينجا الحصري)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات باحترافية (Cloudscraper)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # 🚀 استدعاء المحرك القوي (نينجا)
-        data = fetch_ninja_data(username)
+        # 🚀 استدعاء المحرك القوي المدرع
+        data = fetch_pro_data(username)
 
         # التأكد من أن هناك بيانات فعلية تم جلبها
         if data and data.get("user") and data["user"].get("id"):
@@ -356,6 +421,7 @@ def process_profile_link(message):
             create_time = format_date(user.get("createTime"))
             modify_time = format_date(user.get("nickNameModifyTime"))
             
+            # تصحيح تاريخ التعديل بذكاء
             if create_time != "غير متوفر" and create_time == modify_time:
                 modify_time = "لم يتم التعديل"
             elif modify_time == "غير متوفر" and create_time != "غير متوفر":
@@ -502,7 +568,7 @@ def process_broadcast(message):
     bot.reply_to(message, f"✅ تمت الإذاعة بنجاح.\nوصلت إلى {success}")
 
 # ==========================================
-# 🌐 إعدادات سيرفر Vercel (Webhook) 🌐
+# 🌐 إعدادات سيرفر Render (Webhook) 🌐
 # ==========================================
 @app.route('/', methods=['GET', 'POST'])
 def webhook():
