@@ -2,8 +2,6 @@ import os
 import io
 import re
 import json
-import random
-import html
 import telebot
 import certifi
 import requests
@@ -11,10 +9,14 @@ from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
 
-# === إعدادات Flask الأساسية لـ Vercel ===
+# ==========================================
+# ⚙️ إعدادات تشغيل Vercel الأساسية ⚙️
+# ==========================================
 app = Flask(__name__)
 
-# === إعدادات البوت والاتصال ===
+# ==========================================
+# ⚙️ إعدادات البوت وقاعدة البيانات ⚙️
+# ==========================================
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
 bot = telebot.TeleBot(TOKEN, threaded=False)
 
@@ -23,19 +25,19 @@ try:
 except:
     BOT_USERNAME = "@AmanFusion_bot"
 
-# === ربط قاعدة بيانات MongoDB ===
 MONGO_URI = os.environ.get('MONGO_URI')
 client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['aman-fusion-bot']
 users_collection = db['users']
 
-# === قائمة الآدمن وإعدادات الـ API ===
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
 RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
 
-# === قاموس الدول واللغات ===
+# ==========================================
+# 🌍 القواميس (الدول واللغات) 🌍
+# ==========================================
 COUNTRIES = {
     "SA": ("المملكة العربية السعودية", "🇸🇦"), "AE": ("الإمارات العربية المتحدة", "🇦🇪"),
     "EG": ("مصر", "🇪🇬"), "YE": ("اليمن", "🇾🇪"), "IQ": ("العراق", "🇮🇶"),
@@ -54,12 +56,11 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك سحب نينجا (API المُعترض) 🥷
+# 🥷 محرك سحب نينجا (Ninja API Interceptor) 🥷
 # ==========================================
 def scrape_ninja_api(username):
+    """دالة تتخفى كمتصفح وتطلب البيانات من واجهة موقع نينجا الخلفية"""
     data = {"user": {}, "stats": {}, "stories": []}
-    
-    # محاكاة طلب موقع نينجا للـ API الخاص بهم (لتخطي الكلاودفلير)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
@@ -68,26 +69,20 @@ def scrape_ninja_api(username):
         "Referer": "https://tik.ninja/tiktok-story-viewer"
     }
     
+    # 1. سحب بيانات الحساب
     try:
-        # نحن الآن نرسل الطلب مباشرة إلى القلب النابض لموقع نينجا
         payload = {"url": f"https://www.tiktok.com/@{username}"}
-        # استخدمنا واجهة الـ download الخاصة بنينجا لأنها تعيد تفاصيل اليوزر
-        res = requests.post("https://tik.ninja/api/download", headers=headers, json=payload, timeout=12)
-        
+        res = requests.post("https://tik.ninja/api/download", headers=headers, json=payload, timeout=10)
         if res.status_code == 200:
             ninja_json = res.json()
-            if "author" in ninja_json:
-                data["user"] = ninja_json["author"]
-            if "statistics" in ninja_json:
-                data["stats"] = ninja_json["statistics"]
+            if "author" in ninja_json: data["user"] = ninja_json["author"]
+            if "statistics" in ninja_json: data["stats"] = ninja_json["statistics"]
     except: pass
 
-    # استخراج الستوري بأسلوب نينجا المباشر
+    # 2. سحب الستوري من نينجا
     try:
-        # نستخدم واجهة الـ story الخاصة بنينجا
         payload_story = {"username": username}
-        res_story = requests.post("https://tik.ninja/api/story", headers=headers, json=payload_story, timeout=12)
-        
+        res_story = requests.post("https://tik.ninja/api/story", headers=headers, json=payload_story, timeout=10)
         if res_story.status_code == 200:
             story_json = res_story.json()
             if isinstance(story_json, list):
@@ -100,10 +95,13 @@ def scrape_ninja_api(username):
 
     return data
 
+# ==========================================
+# 🚀 محرك السحب الشامل (Ninja -> TikWM -> RapidAPI) 🚀
+# ==========================================
 def fetch_hybrid_data(username):
     data = {"user": {}, "stats": {}, "stories": []}
     
-    # 1. الاستعانة بمحرك نينجا كخيار أول وأقوى (لجلب الستوري والدولة بدقة)
+    # الطبقة الأولى: موقع نينجا
     ninja_data = scrape_ninja_api(username)
     if ninja_data.get("user"):
         data["user"].update(ninja_data["user"])
@@ -111,7 +109,7 @@ def fetch_hybrid_data(username):
     if ninja_data.get("stories"):
         data["stories"] = ninja_data["stories"]
 
-    # 2. الاستعانة بـ TikWM كخيار ثاني قوي جداً 
+    # الطبقة الثانية: TikWM (لسد النواقص وجلب الدولة بدقة)
     if not data["user"].get("region") or not data.get("stories"):
         try:
             res_tikwm = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=8).json()
@@ -124,7 +122,7 @@ def fetch_hybrid_data(username):
                     if not data["stats"].get(k): data["stats"][k] = v
         except: pass
 
-    # 3. الاستعانة بـ RapidAPI كخيار تكميلي نهائي (لسد الثغرات)
+    # الطبقة الثالثة: RapidAPI (الفلتر الذكي يمنع دولة US الخاطئة)
     try:
         headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers, params={"unique_id": username}, timeout=8).json()
@@ -132,7 +130,10 @@ def fetch_hybrid_data(username):
             r_user = res_rapid["data"].get("user", {})
             r_stats = res_rapid["data"].get("stats", {})
             for k, v in r_user.items():
-                if not data["user"].get(k) and v != "US": data["user"][k] = v
+                if not data["user"].get(k):
+                    # الفلتر الذكي: تجاهل أمريكا إذا جاءت من الـ API المجاني
+                    if k == "region" and v == "US": continue 
+                    data["user"][k] = v
             for k, v in r_stats.items():
                 if not data["stats"].get(k): data["stats"][k] = v
     except: pass
@@ -142,12 +143,11 @@ def fetch_hybrid_data(username):
 def master_story_hunter(username):
     stories = []
     
-    # 1. صيد الستوري من واجهة نينجا مباشرة
+    # 1. صيد نينجا
     ninja_data = scrape_ninja_api(username)
-    if ninja_data.get("stories"):
-        return ninja_data["stories"]
+    if ninja_data.get("stories"): return ninja_data["stories"]
 
-    # 2. صيد الستوري من TikWM (واجهة المنشورات)
+    # 2. صيد TikWM من بين الفيديوهات العادية
     try:
         res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=15", timeout=8).json()
         if res.get("code") == 0 and res.get("data") and res["data"].get("videos"):
@@ -157,7 +157,7 @@ def master_story_hunter(username):
         if stories: return stories
     except: pass
 
-    # 3. صيد الستوري من RapidAPI
+    # 3. صيد RapidAPI
     try:
         headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=headers, params={"unique_id": username}, timeout=8).json()
@@ -167,7 +167,9 @@ def master_story_hunter(username):
 
     return stories
 
-# === دوال مساعدة ===
+# ==========================================
+# 🛠️ دوال المساعدة والتنسيق 🛠️
+# ==========================================
 def is_subscribed(chat_id, user_id):
     try: return bot.get_chat_member(chat_id, user_id).status in ['member', 'administrator', 'creator']
     except: return True 
@@ -192,7 +194,7 @@ def get_yes_no(val): return "نعم ✅" if val else "لا ❌"
 def get_privacy(val): return "للجميع 🌍" if val == 0 else "مغلق ❌"
 
 def get_country_info(code):
-    if not code or code.upper() == "ZZ" or code.upper() == "US": return "غير محددة", ""
+    if not code or code.upper() == "ZZ": return "غير محددة", ""
     return COUNTRIES.get(code.upper(), (code, ""))
 
 def get_language_name(code):
@@ -215,7 +217,7 @@ def get_main_reply_keyboard():
     return markup
 
 # ==========================================
-# 🟢 واجهة المستخدم والخدمات الأساسية 🟢
+# 🟢 واجهة المستخدم 🟢
 # ==========================================
 
 def send_main_menu(chat_id, first_name):
@@ -285,13 +287,14 @@ def callback_query(call):
         return
 
     if call.data.startswith("info_"):
-        parts = call.data.split("_", 2)
+        parts = call.data.split("_", 3)
         action = parts[1]
         target_username = parts[2]
+        target_uid = parts[3] if len(parts) > 3 else ""
 
         if action == "country":
             bot.answer_callback_query(call.id)
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nتم استخراج الدولة باستخدام محرك نينجا لـ @{target_username}.", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nتم استخراج الدولة بدقة لـ @{target_username}.", parse_mode="Markdown")
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
@@ -329,10 +332,10 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # استخراج الستوري بمحرك النينجا المدمج
+        # استخراج الستوري - المسار المعزز
         elif action == "story":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات (محرك نينجا)...")
+            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات...")
             
             stories = master_story_hunter(target_username)
 
@@ -364,7 +367,6 @@ def callback_query(call):
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            # توافق مع صيغ نينجا المختلفة
             author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
             
             stats = story.get("stats", {}) if "stats" in story else story
@@ -378,7 +380,6 @@ def callback_query(call):
             text = f"ستوري #{story_index+1}\nالاسم: {author_nick}\n"
             text += f"المشاهدات: {views}\nاللايكات: {likes}\nالمشاركات: {shares}"
             
-            # استخراج مسار الفيديو الدقيق
             video_url = story.get("video", {}).get("playAddr") or story.get("play")
             images = story.get("imagePost", {}).get("images") or story.get("images", [])
             
@@ -411,12 +412,12 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك نينجا المدمج)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك نينجا)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # استخدام دالة المسح الهجين الشاملة المعززة بنينجا
+        # 🚀 استدعاء المحرك الهجين الشامل
         data = fetch_hybrid_data(username)
 
         if data and data.get("user"):
@@ -437,6 +438,10 @@ def process_profile_link(message):
             
             create_time = format_date(user.get("createTime"))
             modify_time = format_date(user.get("nickNameModifyTime"))
+            
+            # فلتر ذكي لتاريخ التعديل
+            if create_time != "غير متوفر" and create_time == modify_time:
+                modify_time = "لم يتم التعديل"
             
             language_code = user.get("language", "en")
             language = get_language_name(language_code)
@@ -471,7 +476,6 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # بناء النص مع التوقيع المطلوب 
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
@@ -513,12 +517,12 @@ def process_profile_link(message):
             text += f"الرابط في البايو: {bio_link}"
 
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}"))
-            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}"), 
-                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}"))
-            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}"))
-            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}"), 
-                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}"))
+            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}_{uid}"))
+            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}_{uid}"), 
+                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}_{uid}"))
+            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}_{uid}"))
+            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}_{uid}"), 
+                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}_{uid}"))
 
             bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
