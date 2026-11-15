@@ -2,6 +2,7 @@ import os
 import io
 import re
 import json
+import random
 import telebot
 import certifi
 import requests
@@ -10,7 +11,7 @@ from pymongo import MongoClient
 from datetime import datetime
 
 # ==========================================
-# ⚙️ إعدادات تشغيل Vercel الأساسية ⚙️
+# ⚙️ إعدادات تشغيل Vercel / Render ⚙️
 # ==========================================
 app = Flask(__name__)
 
@@ -33,6 +34,9 @@ users_collection = db['users']
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 
+RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
+RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
+
 # ==========================================
 # 🌍 القواميس (الدول واللغات) 🌍
 # ==========================================
@@ -53,70 +57,110 @@ LANGUAGES = {
     "zh": "الصينية", "ru": "الروسية", "de": "الألمانية", "ja": "اليابانية", "ko": "الكورية"
 }
 
+# ترويسات التخفي لتجاوز حظر السيرفرات (مهم جداً)
+WEB_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
+}
+
 # ==========================================
-# 🥷 محرك سحب البيانات العميق (Mobile API Simulator) 🥷
+# 🥷 محرك سحب البيانات العميق والمحمي 🥷
 # ==========================================
 def fetch_pro_data(username):
-    data = {"user": {}, "stats": {}, "stories": []}
+    data = {"user": {}, "stats": {}}
     
-    # 1. الاستعانة بواجهة متقدمة تحاكي طلبات الموبايل (أكثر موثوقية من الـ APIs السابقة)
+    # 1. الاستعانة بواجهة TikWM (مع التخفي لتجنب خطأ JSON)
     try:
-        # نستخدم واجهة TikWM ولكن بنقطة اتصال أعمق
-        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=10).json()
-        
-        if res.get("code") == 0 and res.get("data"):
-            u_data = res["data"].get("user", {})
-            s_data = res["data"].get("stats", {})
-            
-            data["user"] = {
-                "id": u_data.get("id", ""),
-                "nickname": u_data.get("nickname", ""),
-                "signature": u_data.get("signature", ""),
-                "avatarLarger": u_data.get("avatarLarger", ""),
-                "region": u_data.get("region", ""),
-                "language": u_data.get("language", "en"),
-                "verified": u_data.get("verified", False),
-                "secret": u_data.get("secret", False),
-                "createTime": u_data.get("createTime", 0),
-                "nickNameModifyTime": u_data.get("nickNameModifyTime", 0)
-            }
-            data["stats"] = {
-                "followerCount": s_data.get("followerCount", 0),
-                "followingCount": s_data.get("followingCount", 0),
-                "heartCount": s_data.get("heartCount", 0),
-                "videoCount": s_data.get("videoCount", 0),
-                "friendCount": s_data.get("friendCount", 0) 
-            }
+        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", headers=WEB_HEADERS, timeout=10)
+        if res.status_code == 200:
+            res_json = res.json()
+            if res_json.get("code") == 0 and res_json.get("data"):
+                u_data = res_json["data"].get("user", {})
+                s_data = res_json["data"].get("stats", {})
+                
+                data["user"] = {
+                    "id": u_data.get("id", ""),
+                    "nickname": u_data.get("nickname", ""),
+                    "signature": u_data.get("signature", ""),
+                    "avatarLarger": u_data.get("avatarLarger", ""),
+                    "region": u_data.get("region", ""),
+                    "language": u_data.get("language", "en"),
+                    "verified": u_data.get("verified", False),
+                    "secret": u_data.get("secret", False),
+                    "createTime": u_data.get("createTime", 0),
+                    "nickNameModifyTime": u_data.get("nickNameModifyTime", 0)
+                }
+                data["stats"] = {
+                    "followerCount": s_data.get("followerCount", 0),
+                    "followingCount": s_data.get("followingCount", 0),
+                    "heartCount": s_data.get("heartCount", 0),
+                    "videoCount": s_data.get("videoCount", 0),
+                    "friendCount": s_data.get("friendCount", 0) 
+                }
     except Exception as e:
-        print(f"Error fetching main data: {e}")
+        print(f"TikWM Fetch Error: {e}")
 
-    # 2. محاولة سحب الدولة من واجهة بحث الفيديوهات (Mobile API) إذا كانت مفقودة
-    if not data["user"].get("region") or data["user"].get("region").upper() == "US":
+    # 2. طبقة حماية ثانية (RapidAPI) في حال فشل الأول أو لتعويض البيانات
+    try:
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
+        if res_rapid.status_code == 200:
+            rapid_json = res_rapid.json()
+            if rapid_json.get("code") == 0 and rapid_json.get("data"):
+                r_user = rapid_json["data"].get("user", {})
+                r_stats = rapid_json["data"].get("stats", {})
+                for k, v in r_user.items():
+                    # منع استبدال الدولة بدولة السيرفر US
+                    if k == "region" and v == "US": continue
+                    if not data["user"].get(k): data["user"][k] = v
+                for k, v in r_stats.items():
+                    if not data["stats"].get(k): data["stats"][k] = v
+    except Exception as e:
+        print(f"RapidAPI Fetch Error: {e}")
+
+    # 3. صيد الدولة الحقيقية من الفيديوهات إذا كانت مخفية
+    current_region = data["user"].get("region", "")
+    if not current_region or current_region.upper() == "US":
         try:
-            res_posts = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=1", timeout=8).json()
-            if res_posts.get("code") == 0 and res_posts.get("data") and res_posts["data"].get("videos"):
-                vid_region = res_posts["data"]["videos"][0].get("region")
-                if vid_region:
-                    data["user"]["region"] = vid_region
+            res_posts = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=1", headers=WEB_HEADERS, timeout=8)
+            if res_posts.status_code == 200:
+                posts_json = res_posts.json()
+                if posts_json.get("code") == 0 and posts_json.get("data") and posts_json["data"].get("videos"):
+                    vid_region = posts_json["data"]["videos"][0].get("region")
+                    if vid_region:
+                        data["user"]["region"] = vid_region
         except Exception as e:
-            print(f"Error fetching region from posts: {e}")
+            print(f"Region Hunt Error: {e}")
 
     return data
 
 def master_story_hunter(username):
     stories = []
     
-    # 1. صيد الستوري عبر واجهة الموبايل (TikWM API - Posts Endpoint)
-    # هذه الواجهة تدمج الستوريات مع الفيديوهات، سنقوم بفرزها
+    # 1. صيد الستوري عبر واجهة TikWM (متخفي كمتصفح)
     try:
-        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20", timeout=12).json()
-        if res.get("code") == 0 and res.get("data") and res["data"].get("videos"):
-            for item in res["data"]["videos"]:
-                # تيك توك يصنف الستوري بهذا الشكل في الـ Mobile API
-                if item.get("is_story") == True or item.get("aweme_type") in [68, 69, 101] or item.get("duration") == 0:
-                    stories.append(item)
+        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20", headers=WEB_HEADERS, timeout=12)
+        if res.status_code == 200:
+            res_json = res.json()
+            if res_json.get("code") == 0 and res_json.get("data") and res_json["data"].get("videos"):
+                for item in res_json["data"]["videos"]:
+                    if item.get("is_story") == True or item.get("aweme_type") in [68, 69, 101] or item.get("duration") == 0:
+                        stories.append(item)
     except Exception as e:
-        print(f"Error hunting stories: {e}")
+        print(f"TikWM Story Error: {e}")
+
+    # 2. صيد الستوري عبر RapidAPI (الخطة ب)
+    if not stories:
+        try:
+            rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+            res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=12)
+            if res_rapid.status_code == 200:
+                rapid_json = res_rapid.json()
+                if rapid_json.get("code") == 0 and rapid_json.get("data") and rapid_json["data"].get("itemList"):
+                    stories = rapid_json["data"]["itemList"]
+        except Exception as e:
+            print(f"RapidAPI Story Error: {e}")
 
     return stories
 
@@ -269,8 +313,24 @@ def callback_query(call):
             else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
         elif action in ["followers", "following"]:
-            bot.answer_callback_query(call.id, "هذه الميزة معطلة حالياً لتحديثات الأمان.")
-            return
+            endpoint = "user/followers" if action == "followers" else "user/followings"
+            bot.answer_callback_query(call.id)
+            msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
+            try:
+                headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+                res = requests.get(f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}", headers=headers, params={"unique_id": target_username, "count": 10}, timeout=10)
+                if res.status_code == 200:
+                    res_json = res.json()
+                    if res_json.get("code") == 0 and res_json.get("data") and "userList" in res_json["data"]:
+                        usersList = res_json["data"]["userList"]
+                        if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                        else:
+                            text = "👥 **أحدث الحسابات:**\n\n"
+                            for u in usersList[:10]: text += f"👤 {u.get('user', {}).get('nickname', 'بدون اسم')} | `@{u.get('user', {}).get('uniqueId', '')}`\n"
+                            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
+                    else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
+                else: bot.edit_message_text("⚠️ خطأ في الاتصال بالسيرفر.", chat_id=call.message.chat.id, message_id=msg.message_id)
+            except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
         elif action == "story":
             bot.answer_callback_query(call.id)
@@ -356,10 +416,11 @@ def process_profile_link(message):
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # 🚀 استدعاء المحرك القوي
+        # 🚀 استدعاء المحرك القوي المدرع
         data = fetch_pro_data(username)
 
-        if data and data.get("user"):
+        # التأكد من أن هناك بيانات فعلية تم جلبها
+        if data and data.get("user") and data["user"].get("id"):
             user = data.get("user", {})
             stats = data.get("stats", {})
 
@@ -378,7 +439,7 @@ def process_profile_link(message):
             create_time = format_date(user.get("createTime"))
             modify_time = format_date(user.get("nickNameModifyTime"))
             
-            # تصحيح تاريخ التعديل
+            # تصحيح تاريخ التعديل بذكاء
             if create_time != "غير متوفر" and create_time == modify_time:
                 modify_time = "لم يتم التعديل"
             elif modify_time == "غير متوفر" and create_time != "غير متوفر":
