@@ -4,4 +4,3 @@ gunicorn
 pymongo==4.6.1
 certifi
 requests
-cloudscraper
