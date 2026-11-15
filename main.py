@@ -54,52 +54,64 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك سحب نينجا (Ninja Interceptor) 🥷
+# 🥷 محرك سحب نينجا (API المُعترض) 🥷
 # ==========================================
-def scrape_ninja_site(username):
+def scrape_ninja_api(username):
     data = {"user": {}, "stats": {}, "stories": []}
+    
+    # محاكاة طلب موقع نينجا للـ API الخاص بهم (لتخطي الكلاودفلير)
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Referer": "https://tik.ninja/",
-        "Accept-Language": "en-US,en;q=0.5"
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": "https://tik.ninja",
+        "Referer": "https://tik.ninja/tiktok-story-viewer"
     }
+    
     try:
-        # محاكاة الدخول لموقع نينجا
-        res = requests.get(f"https://tik.ninja/@{username}", headers=headers, timeout=8)
-        html_content = res.text
+        # نحن الآن نرسل الطلب مباشرة إلى القلب النابض لموقع نينجا
+        payload = {"url": f"https://www.tiktok.com/@{username}"}
+        # استخدمنا واجهة الـ download الخاصة بنينجا لأنها تعيد تفاصيل اليوزر
+        res = requests.post("https://tik.ninja/api/download", headers=headers, json=payload, timeout=12)
         
-        # التقاط الـ JSON المخفي في كود موقع نينجا (Next.js data)
-        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', html_content)
-        if match:
-            ninja_json = json.loads(match.group(1))
-            # استخراج البيانات من الهيكلة المتوقعة للموقع
-            props = ninja_json.get("props", {}).get("pageProps", {})
-            user_info = props.get("userInfo", {}) or props.get("userData", {})
-            
-            if user_info:
-                data["user"] = user_info.get("user", {})
-                data["stats"] = user_info.get("stats", {})
-                
-            stories = props.get("stories", []) or props.get("storyList", [])
-            if stories:
-                data["stories"] = stories
-    except:
-        pass
+        if res.status_code == 200:
+            ninja_json = res.json()
+            if "author" in ninja_json:
+                data["user"] = ninja_json["author"]
+            if "statistics" in ninja_json:
+                data["stats"] = ninja_json["statistics"]
+    except: pass
+
+    # استخراج الستوري بأسلوب نينجا المباشر
+    try:
+        # نستخدم واجهة الـ story الخاصة بنينجا
+        payload_story = {"username": username}
+        res_story = requests.post("https://tik.ninja/api/story", headers=headers, json=payload_story, timeout=12)
+        
+        if res_story.status_code == 200:
+            story_json = res_story.json()
+            if isinstance(story_json, list):
+                data["stories"] = story_json
+            elif isinstance(story_json, dict) and "stories" in story_json:
+                data["stories"] = story_json["stories"]
+            elif isinstance(story_json, dict) and "data" in story_json:
+                 data["stories"] = story_json["data"]
+    except: pass
+
     return data
 
 def fetch_hybrid_data(username):
     data = {"user": {}, "stats": {}, "stories": []}
     
-    # 1. الاستعانة بمحرك نينجا كخيار أول
-    ninja_data = scrape_ninja_site(username)
+    # 1. الاستعانة بمحرك نينجا كخيار أول وأقوى (لجلب الستوري والدولة بدقة)
+    ninja_data = scrape_ninja_api(username)
     if ninja_data.get("user"):
         data["user"].update(ninja_data["user"])
         data["stats"].update(ninja_data["stats"])
     if ninja_data.get("stories"):
         data["stories"] = ninja_data["stories"]
 
-    # 2. الاستعانة بـ TikWM كخيار ثاني قوي جداً (نفس المحرك الذي يعتمد عليه نينجا في الخلفية)
+    # 2. الاستعانة بـ TikWM كخيار ثاني قوي جداً 
     if not data["user"].get("region") or not data.get("stories"):
         try:
             res_tikwm = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=8).json()
@@ -112,7 +124,7 @@ def fetch_hybrid_data(username):
                     if not data["stats"].get(k): data["stats"][k] = v
         except: pass
 
-    # 3. الاستعانة بـ RapidAPI كخيار تكميلي نهائي
+    # 3. الاستعانة بـ RapidAPI كخيار تكميلي نهائي (لسد الثغرات)
     try:
         headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers, params={"unique_id": username}, timeout=8).json()
@@ -130,8 +142,8 @@ def fetch_hybrid_data(username):
 def master_story_hunter(username):
     stories = []
     
-    # 1. صيد الستوري من موقع نينجا
-    ninja_data = scrape_ninja_site(username)
+    # 1. صيد الستوري من واجهة نينجا مباشرة
+    ninja_data = scrape_ninja_api(username)
     if ninja_data.get("stories"):
         return ninja_data["stories"]
 
@@ -317,7 +329,7 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # استخراج الستوري - المسار المعزز القوي
+        # استخراج الستوري بمحرك النينجا المدمج
         elif action == "story":
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات (محرك نينجا)...")
@@ -352,7 +364,7 @@ def callback_query(call):
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            # توافق مع صيغتي TikWM و Ninja و RapidAPI
+            # توافق مع صيغ نينجا المختلفة
             author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
             
             stats = story.get("stats", {}) if "stats" in story else story
@@ -399,12 +411,12 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك نينجا)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك نينجا المدمج)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # استخدام دالة المسح الهجين الشاملة مع دمج موقع نينجا
+        # استخدام دالة المسح الهجين الشاملة المعززة بنينجا
         data = fetch_hybrid_data(username)
 
         if data and data.get("user"):
@@ -459,7 +471,7 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # بناء النص مع التوقيع المطلوب حرفياً
+            # بناء النص مع التوقيع المطلوب 
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
