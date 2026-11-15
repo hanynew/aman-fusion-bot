@@ -8,6 +8,7 @@ import requests
 from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
+from playwright.sync_api import sync_playwright
 
 # ==========================================
 # ⚙️ إعدادات تشغيل Render الأساسية ⚙️
@@ -33,7 +34,6 @@ users_collection = db['users']
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 
-# إعادة المفتاح والواجهة الأصلية التي اشتركت بها لضمان عملها
 RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
 RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
 
@@ -58,33 +58,65 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك جلب البيانات الشامل (Triple-Mesh) 🥷
+# 🥷 محرك المتصفح المخفي (Playwright Engine) 🥷
 # ==========================================
+def extract_data_with_browser(username):
+    """
+    يفتح متصفح كروم حقيقي مخفي لقراءة البيانات الأساسية لمنع حظر Cloudflare
+    """
+    data = {"user": {}, "stats": {}, "stories": []}
+    try:
+        with sync_playwright() as p:
+            # تشغيل متصفح كروم
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+            page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            
+            # الانتقال لصفحة المستخدم
+            page.goto(f"https://www.tiktok.com/@{username}", wait_until="domcontentloaded", timeout=15000)
+            
+            # استخراج محتوى الـ HTML
+            html_content = page.content()
+            browser.close()
+
+            # البحث عن البيانات الشاملة المخبأة في الصفحة (SIGI_STATE)
+            match = re.search(r'<script id="SIGI_STATE" type="application/json">([^<]+)</script>', html_content)
+            if match:
+                sigi_json = json.loads(match.group(1))
+                
+                # استخراج اليوزر والإحصائيات
+                users_module = sigi_json.get("UserModule", {}).get("users", {})
+                stats_module = sigi_json.get("UserModule", {}).get("stats", {})
+                
+                for k, v in users_module.items():
+                    if k.lower() == username.lower():
+                        data["user"] = v
+                        break
+                for k, v in stats_module.items():
+                    if k.lower() == username.lower():
+                        data["stats"] = v
+                        break
+                
+                # استخراج الستوري إذا كانت موجودة في نفس الصفحة
+                item_module = sigi_json.get("ItemModule", {})
+                for k, v in item_module.items():
+                    if v.get("isStory") == True or v.get("storyType"):
+                        data["stories"].append(v)
+                        
+    except Exception as e:
+        print(f"Browser Engine Error: {e}")
+        
+    return data
+
 def fetch_pro_data(username):
     data = {"user": {}, "stats": {}}
     
-    # 1. الطبقة الأولى: TiklyDown (واجهة قوية جداً تجلب الأصدقاء والدولة بدون حظر)
-    try:
-        res = requests.get(f"https://api.tiklydown.eu.org/api/user?user={username}", timeout=12)
-        if res.status_code == 200:
-            js = res.json()
-            data["user"]["id"] = js.get("id", "")
-            data["user"]["nickname"] = js.get("name", "")
-            data["user"]["signature"] = js.get("signature", "")
-            data["user"]["avatarLarger"] = js.get("avatar", "")
-            data["user"]["region"] = js.get("region", "")
-            data["user"]["verified"] = js.get("verified", False)
-            
-            if "stats" in js:
-                data["stats"]["followerCount"] = js["stats"].get("followerCount", 0)
-                data["stats"]["followingCount"] = js["stats"].get("followingCount", 0)
-                data["stats"]["heartCount"] = js["stats"].get("heartCount", 0)
-                data["stats"]["videoCount"] = js["stats"].get("videoCount", 0)
-                data["stats"]["friendCount"] = js["stats"].get("friendCount", 0)
-    except Exception as e:
-        print(f"TiklyDown Error: {e}")
+    # 1. استخدام محرك المتصفح كطبقة أولى موثوقة
+    browser_data = extract_data_with_browser(username)
+    if browser_data.get("user"):
+        data["user"].update(browser_data["user"])
+        data["stats"].update(browser_data["stats"])
 
-    # 2. الطبقة الثانية: RapidAPI (التي تملك مفتاحها كضمان أساسي)
+    # 2. طبقة RapidAPI كنسخة احتياطية
     try:
         rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
@@ -101,22 +133,7 @@ def fetch_pro_data(username):
     except Exception as e:
         print(f"RapidAPI Error: {e}")
 
-    # 3. الطبقة الثالثة: TikWM لسد أي نواقص متبقية
-    try:
-        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=10)
-        if res.status_code == 200:
-            js = res.json()
-            if js.get("code") == 0 and js.get("data"):
-                u_data = js["data"].get("user", {})
-                s_data = js["data"].get("stats", {})
-                for k, v in u_data.items():
-                    if not data["user"].get(k): data["user"][k] = v
-                for k, v in s_data.items():
-                    if not data["stats"].get(k): data["stats"][k] = v
-    except Exception as e:
-        pass
-
-    # صائد الدولة العميق إذا فشلت كل الـ APIs
+    # 3. صائد الدولة من الفيديوهات
     curr_region = data["user"].get("region", "")
     if not curr_region or curr_region.upper() == "US":
         try:
@@ -135,9 +152,14 @@ def fetch_pro_data(username):
 def master_story_hunter(username):
     stories = []
     
-    # 1. صيد الستوري من واجهة المنشورات الشاملة (TikWM) - الخيار الأقوى
+    # 1. جلب الستوري باستخدام محرك المتصفح
+    browser_data = extract_data_with_browser(username)
+    if browser_data.get("stories"):
+        return browser_data["stories"]
+
+    # 2. صيد الستوري من واجهة TikWM
     try:
-        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=15", timeout=12)
+        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=15", timeout=10)
         if res.status_code == 200:
             js = res.json()
             if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
@@ -145,20 +167,20 @@ def master_story_hunter(username):
                     if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
                         stories.append(v)
     except Exception as e:
-        print(f"Story Error 1: {e}")
+        print(f"TikWM Story Error: {e}")
 
     if stories: return stories
 
-    # 2. صيد الستوري من واجهة RapidAPI كاحتياطي
+    # 3. صيد الستوري من RapidAPI
     try:
         rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=12)
+        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=10)
         if res.status_code == 200:
             js = res.json()
             if js.get("code") == 0 and js.get("data") and js["data"].get("itemList"):
                 stories = js["data"]["itemList"]
     except Exception as e:
-        print(f"Story Error 2: {e}")
+        print(f"RapidAPI Story Error: {e}")
     
     return stories
 
@@ -363,7 +385,8 @@ def callback_query(call):
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
+            author_data = story.get("author", {}) or story
+            author_nick = author_data.get("nickname", "بدون اسم")
             
             stats = story.get("stats", {}) if "stats" in story else story
             views = stats.get("playCount") or stats.get("play_count", 0)
@@ -408,11 +431,12 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة (Multi-API Engine)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك المتصفح)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
+        # 🚀 استدعاء المحرك القوي
         data = fetch_pro_data(username)
 
         # التأكد من أن هناك بيانات فعلية تم جلبها
