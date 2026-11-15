@@ -1,14 +1,12 @@
 import os
 import io
 import re
-import json
 import telebot
 import certifi
 import requests
 from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
-from playwright.sync_api import sync_playwright
 
 # ==========================================
 # ⚙️ إعدادات تشغيل Render الأساسية ⚙️
@@ -58,65 +56,53 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك المتصفح المخفي (Playwright Engine) 🥷
+# 🥷 محرك سحب البيانات العميق (Proxy-Backed Engine) 🥷
 # ==========================================
-def extract_data_with_browser(username):
-    """
-    يفتح متصفح كروم حقيقي مخفي لقراءة البيانات الأساسية لمنع حظر Cloudflare
-    """
-    data = {"user": {}, "stats": {}, "stories": []}
-    try:
-        with sync_playwright() as p:
-            # تشغيل متصفح كروم
-            browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
-            page = browser.new_page(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            
-            # الانتقال لصفحة المستخدم
-            page.goto(f"https://www.tiktok.com/@{username}", wait_until="domcontentloaded", timeout=15000)
-            
-            # استخراج محتوى الـ HTML
-            html_content = page.content()
-            browser.close()
-
-            # البحث عن البيانات الشاملة المخبأة في الصفحة (SIGI_STATE)
-            match = re.search(r'<script id="SIGI_STATE" type="application/json">([^<]+)</script>', html_content)
-            if match:
-                sigi_json = json.loads(match.group(1))
-                
-                # استخراج اليوزر والإحصائيات
-                users_module = sigi_json.get("UserModule", {}).get("users", {})
-                stats_module = sigi_json.get("UserModule", {}).get("stats", {})
-                
-                for k, v in users_module.items():
-                    if k.lower() == username.lower():
-                        data["user"] = v
-                        break
-                for k, v in stats_module.items():
-                    if k.lower() == username.lower():
-                        data["stats"] = v
-                        break
-                
-                # استخراج الستوري إذا كانت موجودة في نفس الصفحة
-                item_module = sigi_json.get("ItemModule", {})
-                for k, v in item_module.items():
-                    if v.get("isStory") == True or v.get("storyType"):
-                        data["stories"].append(v)
-                        
-    except Exception as e:
-        print(f"Browser Engine Error: {e}")
-        
-    return data
-
 def fetch_pro_data(username):
+    """
+    يعتمد هذا المحرك على واجهات مدعومة ببروكسيات لتخطي حظر الـ Data Centers.
+    """
     data = {"user": {}, "stats": {}}
     
-    # 1. استخدام محرك المتصفح كطبقة أولى موثوقة
-    browser_data = extract_data_with_browser(username)
-    if browser_data.get("user"):
-        data["user"].update(browser_data["user"])
-        data["stats"].update(browser_data["stats"])
+    # 1. الطبقة الأولى والأقوى: TiklyDown (تجلب الأصدقاء والدولة بدقة)
+    try:
+        res = requests.get(f"https://api.tiklydown.eu.org/api/user?user={username}", timeout=15)
+        if res.status_code == 200:
+            js = res.json()
+            data["user"]["id"] = js.get("id", "")
+            data["user"]["nickname"] = js.get("name", "")
+            data["user"]["signature"] = js.get("signature", "")
+            data["user"]["avatarLarger"] = js.get("avatar", "")
+            data["user"]["region"] = js.get("region", "")
+            data["user"]["verified"] = js.get("verified", False)
+            
+            if "stats" in js:
+                data["stats"]["followerCount"] = js["stats"].get("followerCount", 0)
+                data["stats"]["followingCount"] = js["stats"].get("followingCount", 0)
+                data["stats"]["heartCount"] = js["stats"].get("heartCount", 0)
+                data["stats"]["videoCount"] = js["stats"].get("videoCount", 0)
+                data["stats"]["friendCount"] = js["stats"].get("friendCount", 0)
+    except Exception as e:
+        print(f"TiklyDown API Error: {e}")
 
-    # 2. طبقة RapidAPI كنسخة احتياطية
+    # 2. الطبقة الثانية: TikWM (لاستخراج تواريخ التعديل واللغة إذا لم يجلبها الأول)
+    try:
+        web_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", headers=web_headers, timeout=12)
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data"):
+                u_data = js["data"].get("user", {})
+                s_data = js["data"].get("stats", {})
+                
+                for k, v in u_data.items():
+                    if not data["user"].get(k): data["user"][k] = v
+                for k, v in s_data.items():
+                    if not data["stats"].get(k): data["stats"][k] = v
+    except Exception as e:
+        print(f"TikWM Error: {e}")
+
+    # 3. الطبقة الثالثة: RapidAPI (ضمانة أخيرة)
     try:
         rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
@@ -126,6 +112,7 @@ def fetch_pro_data(username):
                 r_user = js["data"].get("user", {})
                 r_stats = js["data"].get("stats", {})
                 for k, v in r_user.items():
+                    # منع استبدال الدولة بدولة السيرفر US
                     if k == "region" and (v == "US" or not v): continue
                     if not data["user"].get(k): data["user"][k] = v
                 for k, v in r_stats.items():
@@ -133,33 +120,15 @@ def fetch_pro_data(username):
     except Exception as e:
         print(f"RapidAPI Error: {e}")
 
-    # 3. صائد الدولة من الفيديوهات
-    curr_region = data["user"].get("region", "")
-    if not curr_region or curr_region.upper() == "US":
-        try:
-            res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=1", timeout=8)
-            if res.status_code == 200:
-                js = res.json()
-                if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
-                    vid_region = js["data"]["videos"][0].get("region")
-                    if vid_region:
-                        data["user"]["region"] = vid_region
-        except Exception as e:
-            print(f"Region Hunt Error: {e}")
-
     return data
 
 def master_story_hunter(username):
     stories = []
     
-    # 1. جلب الستوري باستخدام محرك المتصفح
-    browser_data = extract_data_with_browser(username)
-    if browser_data.get("stories"):
-        return browser_data["stories"]
-
-    # 2. صيد الستوري من واجهة TikWM
+    # 1. صيد الستوري من واجهة TikWM
     try:
-        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=15", timeout=10)
+        web_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20", headers=web_headers, timeout=15)
         if res.status_code == 200:
             js = res.json()
             if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
@@ -171,7 +140,7 @@ def master_story_hunter(username):
 
     if stories: return stories
 
-    # 3. صيد الستوري من RapidAPI
+    # 2. صيد الستوري من RapidAPI
     try:
         rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
         res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=10)
@@ -431,15 +400,14 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك المتصفح)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات باحترافية (Multi-Layer Engine)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # 🚀 استدعاء المحرك القوي
+        # 🚀 استدعاء المحرك المزدوج
         data = fetch_pro_data(username)
 
-        # التأكد من أن هناك بيانات فعلية تم جلبها
         if data and data.get("user") and data["user"].get("id"):
             user = data.get("user", {})
             stats = data.get("stats", {})
@@ -459,7 +427,7 @@ def process_profile_link(message):
             create_time = format_date(user.get("createTime"))
             modify_time = format_date(user.get("nickNameModifyTime"))
             
-            # تصحيح تاريخ التعديل بذكاء
+            # تصحيح ذكي لتاريخ التعديل
             if create_time != "غير متوفر" and create_time == modify_time:
                 modify_time = "لم يتم التعديل"
             elif modify_time == "غير متوفر" and create_time != "غير متوفر":
