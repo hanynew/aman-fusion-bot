@@ -25,7 +25,7 @@ client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
 db = client['aman-fusion-bot']
 users_collection = db['users']
 
-# === قائمة الآدمن وإعدادات الـ API ===
+# === قائمة الآدمن ===
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
@@ -50,65 +50,77 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🕸️ السكربت الاحترافي (المسح الهجين العميق) 🕸️
+# 🕸️ محرك الاستخراج الرئيسي (TikWM + RapidAPI) 🕸️
 # ==========================================
-def fetch_user_data_pro(unique_id):
-    headers_rapid = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-    data = {"user": {}, "stats": {}}
+def fetch_tiktok_data_master(username):
+    data = {"user": {}, "stats": {}, "stories": []}
     
-    # 1. السحب عبر واجهة TikWM العامة (ممتازة في جلب الدولة والأصدقاء بدقة عالية)
+    # 1. الاستخراج عبر TikWM (الأقوى والأدق للدولة والستوريات)
     try:
-        res_tikwm = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={unique_id}", timeout=10).json()
-        if res_tikwm.get("code") == 0 and res_tikwm.get("data"):
-            data["user"].update(res_tikwm["data"].get("user", {}))
-            data["stats"].update(res_tikwm["data"].get("stats", {}))
+        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", timeout=10).json()
+        if res.get("code") == 0 and res.get("data"):
+            u_data = res["data"].get("user", {})
+            s_data = res["data"].get("stats", {})
+            
+            data["user"] = {
+                "id": u_data.get("id", ""),
+                "nickname": u_data.get("nickname", ""),
+                "signature": u_data.get("signature", ""),
+                "avatarLarger": u_data.get("avatarLarger", ""),
+                "region": u_data.get("region", ""),
+                "language": u_data.get("language", "en"),
+                "verified": u_data.get("verified", False),
+                "secret": u_data.get("secret", False),
+                "createTime": u_data.get("createTime", 0),
+                "nickNameModifyTime": u_data.get("nickNameModifyTime", 0)
+            }
+            data["stats"] = {
+                "followerCount": s_data.get("followerCount", 0),
+                "followingCount": s_data.get("followingCount", 0),
+                "heartCount": s_data.get("heartCount", 0),
+                "videoCount": s_data.get("videoCount", 0),
+                "friendCount": s_data.get("friendCount", 0) # يجلب الأصدقاء بدقة
+            }
     except: pass
 
-    # 2. السحب عبر RapidAPI لتعويض النواقص (التواريخ والإعدادات الدقيقة)
+    # 2. الاستخراج التكميلي عبر RapidAPI (لسد أي نواقص في الخصوصية أو الإعدادات)
     try:
-        res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers_rapid, params={"unique_id": unique_id}, timeout=10).json()
-        if res_rapid.get("code") == 0 and res_rapid.get("data"):
-            if "user" in res_rapid["data"]:
-                for k, v in res_rapid["data"]["user"].items():
-                    if v or v == 0: data["user"][k] = v
-            if "stats" in res_rapid["data"]:
-                for k, v in res_rapid["data"]["stats"].items():
-                    if v or v == 0: data["stats"][k] = v
+        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers, params={"unique_id": username}, timeout=10).json()
+        if res.get("code") == 0 and res.get("data"):
+            r_user = res["data"].get("user", {})
+            r_stats = res["data"].get("stats", {})
+            
+            # دمج البيانات بدون الكتابة فوق البيانات الصحيحة من TikWM
+            for k, v in r_user.items():
+                if not data["user"].get(k): data["user"][k] = v
+            for k, v in r_stats.items():
+                if not data["stats"].get(k): data["stats"][k] = v
     except: pass
-                
+    
     return data
 
-# خوارزمية صيد الستوري المتقدمة
-def hunt_for_stories(unique_id, uid):
-    headers_rapid = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+# خوارزمية صيد الستوري المتخصصة (تعتمد على TikWM بشكل رئيسي)
+def master_story_hunter(username):
     stories = []
-
-    # المحاولة 1: مسار الستوري المباشر عبر TikWM
+    
+    # 1. البحث عبر TikWM (الأسرع والأضمن للستوريات)
     try:
-        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={unique_id}&count=10", timeout=8).json()
+        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=12", timeout=10).json()
         if res.get("code") == 0 and res.get("data") and res["data"].get("videos"):
             for item in res["data"]["videos"]:
-                # تيك توك يصنف الستوري كـ is_story=True أو aweme_type=68/69
-                if item.get("is_story") or item.get("aweme_type") in [68, 69, 101]:
+                # تيك توك يصنف الستوري بهذا الشكل في TikWM
+                if item.get("is_story") == True or item.get("aweme_type") in [68, 69, 101] or item.get("duration") == 0:
                     stories.append(item)
     except: pass
 
-    # المحاولة 2: مسار الستوري المباشر عبر RapidAPI (إذا لم ينجح الأول)
+    # 2. البحث عبر RapidAPI كبديل
     if not stories:
         try:
-            res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=headers_rapid, params={"unique_id": unique_id}, timeout=8).json()
+            headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+            res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=headers, params={"unique_id": username}, timeout=10).json()
             if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
                 stories = res["data"]["itemList"]
-        except: pass
-
-    # المحاولة 3: التفتيش في فيديوهات الحساب العادية للعثور على ستوري مدمجة (Story Hunter)
-    if not stories:
-        try:
-            res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/posts", headers=headers_rapid, params={"unique_id": unique_id, "count": 10}, timeout=8).json()
-            if res.get("code") == 0 and res.get("data") and res["data"].get("itemList"):
-                for item in res["data"]["itemList"]:
-                    if item.get("isStory") or item.get("storyType") or item.get("awemeType") in [68, 69, 101]:
-                        stories.append(item)
         except: pass
 
     return stories
@@ -138,7 +150,7 @@ def get_yes_no(val): return "نعم ✅" if val else "لا ❌"
 def get_privacy(val): return "للجميع 🌍" if val == 0 else "مغلق ❌"
 
 def get_country_info(code):
-    if not code or code.upper() == "ZZ": return "غير محددة", ""
+    if not code or code.upper() == "ZZ" or code.upper() == "US": return "غير محددة", ""
     return COUNTRIES.get(code.upper(), (code, ""))
 
 def get_language_name(code):
@@ -231,18 +243,17 @@ def callback_query(call):
         return
 
     if call.data.startswith("info_"):
-        parts = call.data.split("_", 3)
+        parts = call.data.split("_", 2)
         action = parts[1]
         target_username = parts[2]
-        target_uid = parts[3] if len(parts) > 3 else ""
 
         if action == "country":
             bot.answer_callback_query(call.id)
-            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nتم استخراج الدولة بدقة لـ @{target_username}.", parse_mode="Markdown")
+            bot.send_message(call.message.chat.id, f"🌍 **معلومات الدولة:**\nتم استخراج الدولة بنجاح من إعدادات تيك توك للمستخدم @{target_username}.", parse_mode="Markdown")
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
-            data = fetch_user_data_pro(target_username)
+            data = fetch_tiktok_data_master(target_username)
             if data and data.get("stats"):
                 followers = data.get("stats", {}).get("followerCount", 0)
                 bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
@@ -250,7 +261,7 @@ def callback_query(call):
             
         elif action == "contact":
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
-            data = fetch_user_data_pro(target_username)
+            data = fetch_tiktok_data_master(target_username)
             if data and data.get("user"):
                 bio = data.get("user", {}).get("signature", "")
                 emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
@@ -263,9 +274,9 @@ def callback_query(call):
             endpoint = "user/followers" if action == "followers" else "user/followings"
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
-            url = f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}"
             try:
-                res = requests.get(url, headers={"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}, params={"unique_id": target_username, "count": 10}).json()
+                headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+                res = requests.get(f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}", headers=headers, params={"unique_id": target_username, "count": 10}).json()
                 if res.get("code") == 0 and res.get("data") and "userList" in res["data"]:
                     usersList = res["data"]["userList"]
                     if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
@@ -276,12 +287,12 @@ def callback_query(call):
                 else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
             except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
 
-        # استخراج الستوري - باستخدام خوارزمية الـ Hunter القوية
+        # استخراج الستوري - المسار المعزز القوي
         elif action == "story":
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات...")
             
-            stories = hunt_for_stories(target_username, target_uid)
+            stories = master_story_hunter(target_username)
 
             if stories:
                 story_count = len(stories)
@@ -290,7 +301,7 @@ def callback_query(call):
                 text += f"عدد الستوريات: {story_count}"
                 
                 markup = InlineKeyboardMarkup(row_width=3)
-                buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_username}_{target_uid}") for i in range(story_count)]
+                buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_username}") for i in range(story_count)]
                 markup.add(*buttons)
                 
                 bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=markup)
@@ -300,19 +311,18 @@ def callback_query(call):
 
     # عرض الستوري الفعلي
     if call.data.startswith("getstory_"):
-        parts = call.data.split("_", 3)
+        parts = call.data.split("_", 2)
         story_index = int(parts[1])
         target_username = parts[2]
-        target_uid = parts[3] if len(parts) > 3 else ""
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
         
-        stories = hunt_for_stories(target_username, target_uid)
+        stories = master_story_hunter(target_username)
 
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            # استخراج بيانات الستوري سواء كانت بصيغة RapidAPI أو TikWM
+            # توافق مع صيغتي TikWM و RapidAPI
             author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
             
             stats = story.get("stats", {}) if "stats" in story else story
@@ -326,6 +336,7 @@ def callback_query(call):
             text = f"ستوري #{story_index+1}\nالاسم: {author_nick}\n"
             text += f"المشاهدات: {views}\nاللايكات: {likes}\nالمشاركات: {shares}"
             
+            # استخراج مسار الفيديو الدقيق
             video_url = story.get("video", {}).get("playAddr") or story.get("play")
             images = story.get("imagePost", {}).get("images") or story.get("images", [])
             
@@ -358,19 +369,19 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(السحب المباشر المطور)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة من المصدر الموثوق...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # استخدام دالة المسح الاحترافي
-        data = fetch_user_data_pro(username)
+        # استخدام دالة المسح الرئيسية
+        data = fetch_tiktok_data_master(username)
 
         if data and data.get("user"):
             user = data.get("user", {})
             stats = data.get("stats", {})
 
-            # استخراج الدولة بدقة قوية
+            # استخراج الدولة بدقة
             region_code = user.get("region") or user.get("country") or user.get("iso3166") or ""
             country_name, country_flag = get_country_info(region_code)
 
@@ -387,7 +398,6 @@ def process_profile_link(message):
             modify_time = format_date(user.get("nickNameModifyTime"))
             if modify_time == format_date(0): modify_time = "غير متوفر"
             
-            # ترجمة اللغة إلى العربية
             language_code = user.get("language", "en")
             language = get_language_name(language_code)
 
@@ -421,7 +431,7 @@ def process_profile_link(message):
             bio_link = user.get("bioLink", {}).get("link", "(None)")
             avatar_url = user.get("avatarLarger", "")
 
-            # بناء النص مع التوقيع المطلوب حرفياً
+            # بناء النص مع التوقيع الدقيق
             text = f"اسم المستخدم: <code>{username}</code>\n"
             text += f"المعرف: <code>{uid}</code>\n"
             text += f"الاسم: {nickname}\n"
@@ -463,12 +473,12 @@ def process_profile_link(message):
             text += f"الرابط في البايو: {bio_link}"
 
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}_{uid}"))
-            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}_{uid}"), 
-                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}_{uid}"))
-            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}_{uid}"))
-            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}_{uid}"), 
-                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}_{uid}"))
+            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}"))
+            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}"), 
+                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}"))
+            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}"))
+            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}"), 
+                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}"))
 
             bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
