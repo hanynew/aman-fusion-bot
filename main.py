@@ -4,6 +4,7 @@ import re
 import telebot
 import certifi
 import requests
+from curl_cffi import requests as cffi_requests
 from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
@@ -32,6 +33,9 @@ users_collection = db['users']
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 
+RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
+RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
+
 # ==========================================
 # 🌍 القواميس (الدول واللغات) 🌍
 # ==========================================
@@ -53,65 +57,73 @@ LANGUAGES = {
 }
 
 # ==========================================
-# 🥷 محرك TokAPI الاحترافي (المضمون 100%) 🥷
+# 🥷 محرك الاختراق العميق (JA3 TLS Bypass) 🥷
 # ==========================================
-# هذا المحرك يستخدم واجهة مدعومة ببروكسيات تتخطى خطأ SSL وحماية Cloudflare
-RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
-
 def fetch_pro_data(username):
     data = {"user": {}, "stats": {}}
     
-    # 1. الطبقة الرئيسية المضمونة (TokAPI)
+    # 1. استخدام curl_cffi لتزوير بصمة كروم واختراق TikWM لجلب (الأصدقاء وتواريخ التعديل)
     try:
-        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "tokapi-mobile-version.p.rapidapi.com"}
-        res = requests.get(f"https://tokapi-mobile-version.p.rapidapi.com/v1/user/search?keyword={username}", headers=headers, timeout=15)
+        res = cffi_requests.get(
+            f"https://www.tikwm.com/api/user/info?unique_id={username}", 
+            impersonate="chrome110", 
+            timeout=15
+        )
         if res.status_code == 200:
             js = res.json()
-            if js.get("user_list") and len(js["user_list"]) > 0:
-                user_info = js["user_list"][0].get("user_info", {})
+            if js.get("code") == 0 and js.get("data"):
+                u_data = js["data"].get("user", {})
+                s_data = js["data"].get("stats", {})
                 
-                data["user"]["id"] = user_info.get("uid", "")
-                data["user"]["nickname"] = user_info.get("nickname", "")
-                data["user"]["signature"] = user_info.get("signature", "")
-                data["user"]["avatarLarger"] = user_info.get("avatar_larger", {}).get("url_list", [""])[0] if user_info.get("avatar_larger") else ""
-                data["user"]["region"] = user_info.get("region", "")
-                data["user"]["verified"] = user_info.get("custom_verify", "") != ""
-                data["user"]["secret"] = user_info.get("secret", False)
+                data["user"]["id"] = u_data.get("id", "")
+                data["user"]["nickname"] = u_data.get("nickname", "")
+                data["user"]["signature"] = u_data.get("signature", "")
+                data["user"]["avatarLarger"] = u_data.get("avatarLarger", "")
+                data["user"]["region"] = u_data.get("region", "")
+                data["user"]["verified"] = u_data.get("verified", False)
+                data["user"]["secret"] = u_data.get("secret", False)
+                data["user"]["createTime"] = u_data.get("createTime", 0)
+                data["user"]["nickNameModifyTime"] = u_data.get("nickNameModifyTime", 0)
+                data["user"]["language"] = u_data.get("language", "en")
                 
-                data["stats"]["followerCount"] = user_info.get("follower_count", 0)
-                data["stats"]["followingCount"] = user_info.get("following_count", 0)
-                data["stats"]["heartCount"] = user_info.get("total_favorited", 0)
-                data["stats"]["videoCount"] = user_info.get("aweme_count", 0)
-                data["stats"]["friendCount"] = user_info.get("friend_count", 0)
+                data["stats"]["followerCount"] = s_data.get("followerCount", 0)
+                data["stats"]["followingCount"] = s_data.get("followingCount", 0)
+                data["stats"]["heartCount"] = s_data.get("heartCount", 0)
+                data["stats"]["videoCount"] = s_data.get("videoCount", 0)
+                data["stats"]["friendCount"] = s_data.get("friendCount", 0)
     except Exception as e:
-        print(f"TokAPI Error: {e}")
+        print(f"Curl_CFFI Main Fetch Error: {e}")
 
-    # 2. طبقة استخراج التواريخ من RapidAPI القديم
+    # 2. طبقة RapidAPI لتعويض أي نقص (باستخدام requests العادي)
     try:
-        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"}
-        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=headers, params={"unique_id": username}, timeout=10)
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get(f"https://{RAPID_API_HOST}/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
         if res.status_code == 200:
             js = res.json()
             if js.get("code") == 0 and js.get("data"):
                 r_user = js["data"].get("user", {})
-                data["user"]["createTime"] = r_user.get("createTime", 0)
-                data["user"]["nickNameModifyTime"] = r_user.get("nickNameModifyTime", 0)
-                data["user"]["language"] = r_user.get("language", "en")
-                if not data["user"].get("region") or data["user"].get("region") == "US":
-                    data["user"]["region"] = r_user.get("region", "")
+                r_stats = js["data"].get("stats", {})
+                for k, v in r_user.items():
+                    if k == "region" and (v == "US" or not v): continue
+                    if not data["user"].get(k): data["user"][k] = v
+                for k, v in r_stats.items():
+                    if not data["stats"].get(k): data["stats"][k] = v
     except Exception as e:
         print(f"RapidAPI Backup Error: {e}")
 
-    # 3. صائد الدولة من الفيديوهات (إذا ظلت الدولة مخفية)
+    # 3. صائد الدولة الحقيقي من الفيديوهات لتجاوز إخفاء الدولة
     curr_region = data["user"].get("region", "")
-    if not curr_region or curr_region.upper() == "US":
+    if not curr_region or curr_region.upper() in ["US", "ZZ"]:
         try:
-            headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"}
-            res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/posts", headers=headers, params={"unique_id": username, "count": 1}, timeout=10)
+            res = cffi_requests.get(
+                f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=1", 
+                impersonate="chrome110", 
+                timeout=12
+            )
             if res.status_code == 200:
                 js = res.json()
-                if js.get("code") == 0 and js.get("data") and js["data"].get("itemList"):
-                    vid_region = js["data"]["itemList"][0].get("author", {}).get("region")
+                if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
+                    vid_region = js["data"]["videos"][0].get("region")
                     if vid_region:
                         data["user"]["region"] = vid_region
         except Exception as e:
@@ -122,10 +134,28 @@ def fetch_pro_data(username):
 def master_story_hunter(username):
     stories = []
     
-    # صيد الستوري من الواجهة الرسمية لـ RapidAPI
+    # 1. صيد الستوري بالاختراق الكامل عبر curl_cffi
     try:
-        headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"}
-        res = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=headers, params={"unique_id": username}, timeout=15)
+        res = cffi_requests.get(
+            f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20", 
+            impersonate="chrome110", 
+            timeout=15
+        )
+        if res.status_code == 200:
+            js = res.json()
+            if js.get("code") == 0 and js.get("data") and js["data"].get("videos"):
+                for v in js["data"]["videos"]:
+                    if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
+                        stories.append(v)
+    except Exception as e:
+        print(f"Curl_CFFI Story Error: {e}")
+
+    if stories: return stories
+
+    # 2. صيد الستوري كخيار احتياطي من RapidAPI
+    try:
+        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+        res = requests.get(f"https://{RAPID_API_HOST}/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=10)
         if res.status_code == 200:
             js = res.json()
             if js.get("code") == 0 and js.get("data") and js["data"].get("itemList"):
@@ -287,8 +317,8 @@ def callback_query(call):
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
             try:
-                headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": "tiktok-scraper7.p.rapidapi.com"}
-                res = requests.get(f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}", headers=headers, params={"unique_id": target_username, "count": 10}, timeout=10)
+                rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
+                res = requests.get(f"https://{RAPID_API_HOST}/{endpoint}", headers=rapid_headers, params={"unique_id": target_username, "count": 10}, timeout=10)
                 if res.status_code == 200:
                     res_json = res.json()
                     if res_json.get("code") == 0 and res_json.get("data") and "userList" in res_json["data"]:
@@ -382,7 +412,7 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات باحترافية (TokAPI Engine)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات باحترافية (JA3 Bypass Engine)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
@@ -390,6 +420,7 @@ def process_profile_link(message):
         # 🚀 استدعاء المحرك القوي
         data = fetch_pro_data(username)
 
+        # التأكد من أن هناك بيانات فعلية تم جلبها
         if data and data.get("user") and data["user"].get("id"):
             user = data.get("user", {})
             stats = data.get("stats", {})
