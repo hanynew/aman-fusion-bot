@@ -1,8 +1,6 @@
 import os
 import io
-import re
 import json
-import random
 import telebot
 import certifi
 import requests
@@ -11,7 +9,7 @@ from pymongo import MongoClient
 from datetime import datetime
 
 # ==========================================
-# ⚙️ إعدادات تشغيل Vercel / Render ⚙️
+# ⚙️ إعدادات تشغيل Vercel الأساسية ⚙️
 # ==========================================
 app = Flask(__name__)
 
@@ -34,9 +32,6 @@ users_collection = db['users']
 ADMIN_IDS = [8227136699]
 CHANNEL_USERNAME = "@AmanFusion"
 
-RAPID_API_KEY = "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87"
-RAPID_API_HOST = "tiktok-scraper7.p.rapidapi.com"
-
 # ==========================================
 # 🌍 القواميس (الدول واللغات) 🌍
 # ==========================================
@@ -57,112 +52,56 @@ LANGUAGES = {
     "zh": "الصينية", "ru": "الروسية", "de": "الألمانية", "ja": "اليابانية", "ko": "الكورية"
 }
 
-# ترويسات التخفي لتجاوز حظر السيرفرات (مهم جداً)
-WEB_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "ar,en-US;q=0.9,en;q=0.8"
-}
-
 # ==========================================
-# 🥷 محرك سحب البيانات العميق والمحمي 🥷
+# 🥷 محرك النينجا الحصري (Tik.Ninja API Interceptor) 🥷
 # ==========================================
-def fetch_pro_data(username):
-    data = {"user": {}, "stats": {}}
+def fetch_ninja_data(username):
+    """
+    هذه الدالة تعتمد حصرياً على واجهة Tik.Ninja المخفية لجلب البيانات كاملة.
+    """
+    data = {"user": {}, "stats": {}, "stories": []}
     
-    # 1. الاستعانة بواجهة TikWM (مع التخفي لتجنب خطأ JSON)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": "https://tik.ninja",
+        "Referer": "https://tik.ninja/tiktok-story-viewer"
+    }
+    
+    # 1. جلب بيانات الحساب الشاملة (الدولة، الأصدقاء، التواريخ)
     try:
-        res = requests.get(f"https://www.tikwm.com/api/user/info?unique_id={username}", headers=WEB_HEADERS, timeout=10)
+        # واجهة الـ download في نينجا تعيد تفاصيل اليوزر بدقة عالية
+        payload = {"url": f"https://www.tiktok.com/@{username}"}
+        res = requests.post("https://tik.ninja/api/download", headers=headers, json=payload, timeout=15)
+        
         if res.status_code == 200:
-            res_json = res.json()
-            if res_json.get("code") == 0 and res_json.get("data"):
-                u_data = res_json["data"].get("user", {})
-                s_data = res_json["data"].get("stats", {})
-                
-                data["user"] = {
-                    "id": u_data.get("id", ""),
-                    "nickname": u_data.get("nickname", ""),
-                    "signature": u_data.get("signature", ""),
-                    "avatarLarger": u_data.get("avatarLarger", ""),
-                    "region": u_data.get("region", ""),
-                    "language": u_data.get("language", "en"),
-                    "verified": u_data.get("verified", False),
-                    "secret": u_data.get("secret", False),
-                    "createTime": u_data.get("createTime", 0),
-                    "nickNameModifyTime": u_data.get("nickNameModifyTime", 0)
-                }
-                data["stats"] = {
-                    "followerCount": s_data.get("followerCount", 0),
-                    "followingCount": s_data.get("followingCount", 0),
-                    "heartCount": s_data.get("heartCount", 0),
-                    "videoCount": s_data.get("videoCount", 0),
-                    "friendCount": s_data.get("friendCount", 0) 
-                }
+            ninja_json = res.json()
+            if "author" in ninja_json:
+                data["user"] = ninja_json["author"]
+            if "statistics" in ninja_json:
+                data["stats"] = ninja_json["statistics"]
     except Exception as e:
-        print(f"TikWM Fetch Error: {e}")
+        print(f"Ninja Profile Fetch Error: {e}")
 
-    # 2. طبقة حماية ثانية (RapidAPI) في حال فشل الأول أو لتعويض البيانات
+    # 2. صيد الستوري مباشرة من واجهة الستوري الخاصة بنينجا
     try:
-        rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-        res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/info", headers=rapid_headers, params={"unique_id": username}, timeout=10)
-        if res_rapid.status_code == 200:
-            rapid_json = res_rapid.json()
-            if rapid_json.get("code") == 0 and rapid_json.get("data"):
-                r_user = rapid_json["data"].get("user", {})
-                r_stats = rapid_json["data"].get("stats", {})
-                for k, v in r_user.items():
-                    # منع استبدال الدولة بدولة السيرفر US
-                    if k == "region" and v == "US": continue
-                    if not data["user"].get(k): data["user"][k] = v
-                for k, v in r_stats.items():
-                    if not data["stats"].get(k): data["stats"][k] = v
+        payload_story = {"username": username}
+        res_story = requests.post("https://tik.ninja/api/story", headers=headers, json=payload_story, timeout=15)
+        
+        if res_story.status_code == 200:
+            story_json = res_story.json()
+            if isinstance(story_json, list):
+                data["stories"] = story_json
+            elif isinstance(story_json, dict):
+                if "stories" in story_json:
+                    data["stories"] = story_json["stories"]
+                elif "data" in story_json:
+                    data["stories"] = story_json["data"]
     except Exception as e:
-        print(f"RapidAPI Fetch Error: {e}")
-
-    # 3. صيد الدولة الحقيقية من الفيديوهات إذا كانت مخفية
-    current_region = data["user"].get("region", "")
-    if not current_region or current_region.upper() == "US":
-        try:
-            res_posts = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=1", headers=WEB_HEADERS, timeout=8)
-            if res_posts.status_code == 200:
-                posts_json = res_posts.json()
-                if posts_json.get("code") == 0 and posts_json.get("data") and posts_json["data"].get("videos"):
-                    vid_region = posts_json["data"]["videos"][0].get("region")
-                    if vid_region:
-                        data["user"]["region"] = vid_region
-        except Exception as e:
-            print(f"Region Hunt Error: {e}")
+        print(f"Ninja Story Fetch Error: {e}")
 
     return data
-
-def master_story_hunter(username):
-    stories = []
-    
-    # 1. صيد الستوري عبر واجهة TikWM (متخفي كمتصفح)
-    try:
-        res = requests.get(f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20", headers=WEB_HEADERS, timeout=12)
-        if res.status_code == 200:
-            res_json = res.json()
-            if res_json.get("code") == 0 and res_json.get("data") and res_json["data"].get("videos"):
-                for item in res_json["data"]["videos"]:
-                    if item.get("is_story") == True or item.get("aweme_type") in [68, 69, 101] or item.get("duration") == 0:
-                        stories.append(item)
-    except Exception as e:
-        print(f"TikWM Story Error: {e}")
-
-    # 2. صيد الستوري عبر RapidAPI (الخطة ب)
-    if not stories:
-        try:
-            rapid_headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-            res_rapid = requests.get("https://tiktok-scraper7.p.rapidapi.com/user/story", headers=rapid_headers, params={"unique_id": username}, timeout=12)
-            if res_rapid.status_code == 200:
-                rapid_json = res_rapid.json()
-                if rapid_json.get("code") == 0 and rapid_json.get("data") and rapid_json["data"].get("itemList"):
-                    stories = rapid_json["data"]["itemList"]
-        except Exception as e:
-            print(f"RapidAPI Story Error: {e}")
-
-    return stories
 
 # ==========================================
 # 🛠️ دوال المساعدة والتنسيق 🛠️
@@ -284,10 +223,9 @@ def callback_query(call):
         return
 
     if call.data.startswith("info_"):
-        parts = call.data.split("_", 3)
+        parts = call.data.split("_", 2)
         action = parts[1]
         target_username = parts[2]
-        target_uid = parts[3] if len(parts) > 3 else ""
 
         if action == "country":
             bot.answer_callback_query(call.id)
@@ -295,7 +233,7 @@ def callback_query(call):
         
         elif action == "level":
             bot.answer_callback_query(call.id, "⏳ جاري التقييم...")
-            data = fetch_pro_data(target_username)
+            data = fetch_ninja_data(target_username)
             if data and data.get("stats"):
                 followers = data.get("stats", {}).get("followerCount", 0)
                 bot.send_message(call.message.chat.id, f"⭐ **مستوى الحساب:** {get_account_level(followers)}\n(المتابعين: {followers:,})", parse_mode="Markdown")
@@ -303,40 +241,18 @@ def callback_query(call):
             
         elif action == "contact":
             bot.answer_callback_query(call.id, "⏳ جاري البحث...")
-            data = fetch_pro_data(target_username)
-            if data and data.get("user"):
-                bio = data.get("user", {}).get("signature", "")
-                emails = re.findall(r'[\w\.-]+@[\w\.-]+', bio)
-                phones = re.findall(r'\+?\d{8,15}', bio)
-                text = f"📧 **معلومات التواصل:**\nالبريد: {', '.join(emails) if emails else 'غير متاح'}\nالرقم: {', '.join(phones) if phones else 'غير متاح'}"
-                bot.send_message(call.message.chat.id, text, parse_mode="Markdown")
-            else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
+            bot.send_message(call.message.chat.id, "⚠️ هذه الميزة معطلة حالياً.", parse_mode="Markdown")
 
         elif action in ["followers", "following"]:
-            endpoint = "user/followers" if action == "followers" else "user/followings"
-            bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, f"⏳ جاري جلب القائمة...")
-            try:
-                headers = {"x-rapidapi-key": RAPID_API_KEY, "x-rapidapi-host": RAPID_API_HOST}
-                res = requests.get(f"https://tiktok-scraper7.p.rapidapi.com/{endpoint}", headers=headers, params={"unique_id": target_username, "count": 10}, timeout=10)
-                if res.status_code == 200:
-                    res_json = res.json()
-                    if res_json.get("code") == 0 and res_json.get("data") and "userList" in res_json["data"]:
-                        usersList = res_json["data"]["userList"]
-                        if not usersList: bot.edit_message_text("❌ القائمة فارغة أو مخفية.", chat_id=call.message.chat.id, message_id=msg.message_id)
-                        else:
-                            text = "👥 **أحدث الحسابات:**\n\n"
-                            for u in usersList[:10]: text += f"👤 {u.get('user', {}).get('nickname', 'بدون اسم')} | `@{u.get('user', {}).get('uniqueId', '')}`\n"
-                            bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="Markdown")
-                    else: bot.edit_message_text("⚠️ القائمة خاصة.", chat_id=call.message.chat.id, message_id=msg.message_id)
-                else: bot.edit_message_text("⚠️ خطأ في الاتصال بالسيرفر.", chat_id=call.message.chat.id, message_id=msg.message_id)
-            except: bot.edit_message_text("⚠️ خطأ في الاتصال.", chat_id=call.message.chat.id, message_id=msg.message_id)
+            bot.answer_callback_query(call.id, "هذه الميزة معطلة حالياً لتحديثات الأمان.")
+            return
 
         elif action == "story":
             bot.answer_callback_query(call.id)
-            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات...")
+            msg = bot.send_message(call.message.chat.id, "⏳ جاري البحث العميق عن الستوريات (محرك نينجا)...")
             
-            stories = master_story_hunter(target_username)
+            data = fetch_ninja_data(target_username)
+            stories = data.get("stories", [])
 
             if stories:
                 story_count = len(stories)
@@ -345,7 +261,7 @@ def callback_query(call):
                 text += f"عدد الستوريات: {story_count}"
                 
                 markup = InlineKeyboardMarkup(row_width=3)
-                buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_username}_{target_uid}") for i in range(story_count)]
+                buttons = [InlineKeyboardButton(f"#{i+1}", callback_data=f"getstory_{i}_{target_username}") for i in range(story_count)]
                 markup.add(*buttons)
                 
                 bot.edit_message_text(text, chat_id=call.message.chat.id, message_id=msg.message_id, parse_mode="HTML", reply_markup=markup)
@@ -355,18 +271,19 @@ def callback_query(call):
 
     # عرض الستوري الفعلي
     if call.data.startswith("getstory_"):
-        parts = call.data.split("_", 3)
+        parts = call.data.split("_", 2)
         story_index = int(parts[1])
         target_username = parts[2]
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
         
-        stories = master_story_hunter(target_username)
+        data = fetch_ninja_data(target_username)
+        stories = data.get("stories", [])
 
         if stories and story_index < len(stories):
             story = stories[story_index]
             
-            author_nick = story.get("author", {}).get("nickname") or story.get("author", {}).get("nickname", "بدون اسم")
+            author_nick = story.get("author", {}).get("nickname", "بدون اسم")
             
             stats = story.get("stats", {}) if "stats" in story else story
             views = stats.get("playCount") or stats.get("play_count", 0)
@@ -411,13 +328,13 @@ def process_profile_link(message):
         return
     
     input_text = message.text.strip()
-    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(Pro Engine)...")
+    msg = bot.reply_to(message, "⏳ جاري استخراج البيانات الدقيقة بـ(محرك نينجا الحصري)...")
     
     try:
         username = input_text.split("@")[1].split("?")[0].split("/")[0] if "@" in input_text else input_text.replace("@", "")
 
-        # 🚀 استدعاء المحرك القوي المدرع
-        data = fetch_pro_data(username)
+        # 🚀 استدعاء المحرك القوي (نينجا)
+        data = fetch_ninja_data(username)
 
         # التأكد من أن هناك بيانات فعلية تم جلبها
         if data and data.get("user") and data["user"].get("id"):
@@ -439,7 +356,6 @@ def process_profile_link(message):
             create_time = format_date(user.get("createTime"))
             modify_time = format_date(user.get("nickNameModifyTime"))
             
-            # تصحيح تاريخ التعديل بذكاء
             if create_time != "غير متوفر" and create_time == modify_time:
                 modify_time = "لم يتم التعديل"
             elif modify_time == "غير متوفر" and create_time != "غير متوفر":
@@ -520,12 +436,12 @@ def process_profile_link(message):
             text += f"الرابط في البايو: {bio_link}"
 
             markup = InlineKeyboardMarkup()
-            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}_{uid}"))
-            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}_{uid}"), 
-                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}_{uid}"))
-            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}_{uid}"))
-            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}_{uid}"), 
-                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}_{uid}"))
+            markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}"))
+            markup.row(InlineKeyboardButton("قائمة المتابعين", callback_data=f"info_followers_{username}"), 
+                       InlineKeyboardButton("قائمة المتابعة", callback_data=f"info_following_{username}"))
+            markup.add(InlineKeyboardButton("معلومات الحساب ( بريد ، رقم )", callback_data=f"info_contact_{username}"))
+            markup.row(InlineKeyboardButton("مستوى الحساب", callback_data=f"info_level_{username}"), 
+                       InlineKeyboardButton("مشاهدة الستوري", callback_data=f"info_story_{username}"))
 
             bot.delete_message(chat_id=message.chat.id, message_id=msg.message_id)
 
