@@ -1,17 +1,17 @@
 import logging
 from typing import Dict, Any
 from tiktok_engine.providers.rapidapi_provider import TikTokRapidAPIProvider
-from tiktok_engine.providers.tiklydown_provider import TiklyDownProvider
 from tiktok_engine.providers.tikwm_provider import TikWMProvider
+from tiktok_engine.providers.tokapi_provider import TokAPIProvider
 
 logger = logging.getLogger(__name__)
 
 class TikTokExtractionEngine:
     def __init__(self):
         # تسجيل المزودين
-        self.rapid_provider = TikTokRapidAPIProvider()
-        self.tikly_provider = TiklyDownProvider()
-        self.tikwm_provider = TikWMProvider()
+        self.rapid_provider = TikTokRapidAPIProvider() # tiktok-scraper7 القديم للتواريخ والستوري
+        self.tikwm_provider = TikWMProvider()          # لصيد الدولة من الفيديوهات كاحتياط
+        self.tokapi_provider = TokAPIProvider()        # المزود الاحترافي الجديد للدولة والأصدقاء
 
     def _normalize_date(self, timestamp) -> str:
         if not timestamp or str(timestamp) == "0" or str(timestamp) == "-1":
@@ -27,34 +27,49 @@ class TikTokExtractionEngine:
     def extract_tiktok_profile(self, username: str) -> Dict[str, Any]:
         result = {"status": "error", "message": "حدث خطأ غير معروف", "data": None}
         
-        # حاوية البيانات المدمجة
-        merged_data = {
-            "user": {},
-            "stats": {}
-        }
+        merged_data = {"user": {}, "stats": {}}
 
-        # 1. المصدر الأول: RapidAPI (الأساس)
+        # 1. المصدر الأول الاحترافي: TokAPI (يجلب الأصدقاء والدولة الدقيقة)
+        tok_data = self.tokapi_provider.get_profile(username)
+        if tok_data:
+            merged_data["user"] = {
+                "id": tok_data.get("uid", ""),
+                "nickname": tok_data.get("nickname", ""),
+                "signature": tok_data.get("signature", ""),
+                "region": tok_data.get("region", ""),
+                "verified": tok_data.get("custom_verify", "") != "",
+                "secret": tok_data.get("secret", False)
+            }
+            if tok_data.get("avatar_larger") and tok_data["avatar_larger"].get("url_list"):
+                merged_data["user"]["avatarLarger"] = tok_data["avatar_larger"]["url_list"][0]
+            
+            merged_data["stats"] = {
+                "followerCount": tok_data.get("follower_count", 0),
+                "followingCount": tok_data.get("following_count", 0),
+                "heartCount": tok_data.get("total_favorited", 0),
+                "videoCount": tok_data.get("aweme_count", 0),
+                "friendCount": tok_data.get("friend_count", 0)
+            }
+
+        # 2. المصدر الثاني الداعم: RapidAPI القديم (يجلب التواريخ واللغة وباقي التفاصيل)
         rapid_data = self.rapid_provider.get_profile(username)
         if rapid_data:
-            merged_data["user"].update(rapid_data.get("user", {}))
-            merged_data["stats"].update(rapid_data.get("stats", {}))
-        
-        # 2. المصدر الثاني: TiklyDown (لجلب الأصدقاء والدولة الدقيقة)
-        tikly_data = self.tikly_provider.get_profile(username)
-        if tikly_data:
-            if tikly_data.get("region"): 
-                merged_data["user"]["region"] = tikly_data["region"]
-            if "stats" in tikly_data and tikly_data["stats"].get("friendCount") is not None:
-                merged_data["stats"]["friendCount"] = tikly_data["stats"]["friendCount"]
+            r_user = rapid_data.get("user", {})
+            r_stats = rapid_data.get("stats", {})
+            
+            # تحديث البيانات الناقصة فقط (لا نستبدل دولة TokAPI بدولة السيرفر)
+            for k, v in r_user.items():
+                if k == "region" and merged_data["user"].get("region"): continue
+                if not merged_data["user"].get(k): merged_data["user"][k] = v
+            for k, v in r_stats.items():
+                if not merged_data["stats"].get(k): merged_data["stats"][k] = v
 
-        # التحقق النهائي من وجود بيانات
         if not merged_data["user"].get("id"):
             result["message"] = "لم أتمكن من العثور على هذا الحساب في جميع المصادر المتاحة."
             return result
 
-        # 3. صائد الدولة الحقيقي (القسم الخامس: إصلاح الدولة)
+        # 3. صائد الدولة النهائي
         region = merged_data["user"].get("region", "")
-        # نرفض US أو ZZ كدولة حقيقية إلا إذا أثبتت الفيديوهات ذلك
         if not region or region.upper() in ["US", "ZZ"]:
             recent_posts = self.tikwm_provider.get_recent_posts(username, count=2)
             if recent_posts:
@@ -62,13 +77,12 @@ class TikTokExtractionEngine:
                 if vid_region:
                     region = vid_region
 
-        # 4. محرك الستوري (القسم السابع)
+        # 4. محرك الستوري
         stories = []
         rapid_stories = self.rapid_provider.get_stories(username)
         if rapid_stories:
             stories = rapid_stories
         else:
-            # إذا فشل الأول، نبحث في فيديوهات TikWM عن الستوريات المخفية
             tikwm_posts = self.tikwm_provider.get_recent_posts(username, count=20)
             for v in tikwm_posts:
                 if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
