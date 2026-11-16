@@ -8,7 +8,7 @@ from flask import Flask, request
 from pymongo import MongoClient
 from datetime import datetime
 
-# استدعاء المحرك المركزي الجديد
+# استدعاء المحرك المركزي الذي قمنا ببنائه
 from tiktok_engine.core.engine import TikTokExtractionEngine
 
 # ==========================================
@@ -194,7 +194,9 @@ def callback_query(call):
             bot.answer_callback_query(call.id)
             msg = bot.send_message(call.message.chat.id, "⏳ جاري فحص الستوريات عبر المحرك...")
             
-            stories = tiktok_engine.rapid_provider.get_stories(target_username)
+            # جلب الستوريات من المحرك
+            profile_data = tiktok_engine.extract_tiktok_profile(target_username)
+            stories = profile_data.get("data", {}).get("stories_active", []) if profile_data.get("status") == "success" else []
 
             if stories:
                 story_count = len(stories)
@@ -217,7 +219,9 @@ def callback_query(call):
         target_username = parts[2]
         
         bot.answer_callback_query(call.id, f"⏳ جاري تحميل الستوري #{story_index+1}...")
-        stories = tiktok_engine.rapid_provider.get_stories(target_username)
+        
+        profile_data = tiktok_engine.extract_tiktok_profile(target_username)
+        stories = profile_data.get("data", {}).get("stories_active", []) if profile_data.get("status") == "success" else []
 
         if stories and story_index < len(stories):
             story = stories[story_index]
@@ -283,7 +287,6 @@ def process_profile_link(message):
             
             bio_link = "(None)"
             
-            # بناء التقرير المنظم
             text = f"اسم المستخدم: <code>{d['username']}</code>\n"
             text += f"المعرف: <code>{d['user_id']}</code>\n"
             text += f"الاسم: {d['nickname']}\n"
