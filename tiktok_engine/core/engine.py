@@ -1,105 +1,127 @@
 import logging
 from typing import Dict, Any
 from tiktok_engine.providers.rapidapi_provider import TikTokRapidAPIProvider
+from tiktok_engine.providers.tiklydown_provider import TiklyDownProvider
+from tiktok_engine.providers.tikwm_provider import TikWMProvider
 
 logger = logging.getLogger(__name__)
 
 class TikTokExtractionEngine:
-    """
-    المحرك المركزي لإدارة عملية الاستخراج.
-    ينسق البيانات ويجمعها من المزودين.
-    """
     def __init__(self):
+        # تسجيل المزودين
         self.rapid_provider = TikTokRapidAPIProvider()
+        self.tikly_provider = TiklyDownProvider()
+        self.tikwm_provider = TikWMProvider()
 
     def _normalize_date(self, timestamp) -> str:
         if not timestamp or str(timestamp) == "0" or str(timestamp) == "-1":
             return "غير متوفر"
         try:
             ts = int(timestamp)
-            if len(str(ts)) > 10: 
-                ts = ts / 1000
+            if len(str(ts)) > 10: ts = ts / 1000
             from datetime import datetime
             return datetime.fromtimestamp(ts).strftime('%H:%M:%S %d-%m-%Y')
         except Exception:
             return "غير متوفر"
 
     def extract_tiktok_profile(self, username: str) -> Dict[str, Any]:
-        result = {
-            "status": "error",
-            "message": "حدث خطأ غير معروف",
-            "data": None
+        result = {"status": "error", "message": "حدث خطأ غير معروف", "data": None}
+        
+        # حاوية البيانات المدمجة
+        merged_data = {
+            "user": {},
+            "stats": {}
         }
 
-        # 1. جلب البيانات الخام
-        raw_data = self.rapid_provider.get_profile(username)
+        # 1. المصدر الأول: RapidAPI (الأساس)
+        rapid_data = self.rapid_provider.get_profile(username)
+        if rapid_data:
+            merged_data["user"].update(rapid_data.get("user", {}))
+            merged_data["stats"].update(rapid_data.get("stats", {}))
         
-        if not raw_data:
-            result["message"] = "لم أتمكن من العثور على هذا الحساب أو الواجهة لا تستجيب."
+        # 2. المصدر الثاني: TiklyDown (لجلب الأصدقاء والدولة الدقيقة)
+        tikly_data = self.tikly_provider.get_profile(username)
+        if tikly_data:
+            if tikly_data.get("region"): 
+                merged_data["user"]["region"] = tikly_data["region"]
+            if "stats" in tikly_data and tikly_data["stats"].get("friendCount") is not None:
+                merged_data["stats"]["friendCount"] = tikly_data["stats"]["friendCount"]
+
+        # التحقق النهائي من وجود بيانات
+        if not merged_data["user"].get("id"):
+            result["message"] = "لم أتمكن من العثور على هذا الحساب في جميع المصادر المتاحة."
             return result
-            
-        user_info = raw_data.get("user", {})
-        stats_info = raw_data.get("stats", {})
-        
-        # 2. صائد الدولة الحقيقي
-        region = user_info.get("region", "")
+
+        # 3. صائد الدولة الحقيقي (القسم الخامس: إصلاح الدولة)
+        region = merged_data["user"].get("region", "")
+        # نرفض US أو ZZ كدولة حقيقية إلا إذا أثبتت الفيديوهات ذلك
         if not region or region.upper() in ["US", "ZZ"]:
-            recent_posts = self.rapid_provider.get_recent_posts(username, count=2)
+            recent_posts = self.tikwm_provider.get_recent_posts(username, count=2)
             if recent_posts:
-                vid_region = recent_posts[0].get("author", {}).get("region")
+                vid_region = recent_posts[0].get("region")
                 if vid_region:
                     region = vid_region
-        
-        # 3. جلب الستوريات
-        stories = self.rapid_provider.get_stories(username)
-        
-        # 4. تنسيق التواريخ
-        create_time = self._normalize_date(user_info.get("createTime"))
-        modify_time = self._normalize_date(user_info.get("nickNameModifyTime"))
-        
+
+        # 4. محرك الستوري (القسم السابع)
+        stories = []
+        rapid_stories = self.rapid_provider.get_stories(username)
+        if rapid_stories:
+            stories = rapid_stories
+        else:
+            # إذا فشل الأول، نبحث في فيديوهات TikWM عن الستوريات المخفية
+            tikwm_posts = self.tikwm_provider.get_recent_posts(username, count=20)
+            for v in tikwm_posts:
+                if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
+                    stories.append(v)
+
+        create_time = self._normalize_date(merged_data["user"].get("createTime"))
+        modify_time = self._normalize_date(merged_data["user"].get("nickNameModifyTime"))
         if create_time != "غير متوفر" and create_time == modify_time:
             modify_time = "لم يتم التعديل"
         elif modify_time == "غير متوفر" and create_time != "غير متوفر":
             modify_time = "لم يتم التعديل"
 
         result["status"] = "success"
-        result["message"] = "تم الاستخراج بنجاح"
+        result["message"] = "تم الاستخراج ودمج البيانات بنجاح"
         result["data"] = {
             "username": username,
-            "user_id": user_info.get("id", "غير متوفر"),
-            "nickname": user_info.get("nickname", "غير متوفر"),
-            "bio": user_info.get("signature", ""),
-            "avatar": user_info.get("avatarLarger", ""),
+            "user_id": merged_data["user"].get("id", "غير متوفر"),
+            "nickname": merged_data["user"].get("nickname", "غير متوفر"),
+            "bio": merged_data["user"].get("signature", ""),
+            "avatar": merged_data["user"].get("avatarLarger", ""),
             "region": region,
-            "language": user_info.get("language", "en"),
-            "is_verified": user_info.get("verified", False),
-            "is_private": user_info.get("secret", False),
-            "followers": stats_info.get("followerCount", 0),
-            "following": stats_info.get("followingCount", 0),
-            "friends": stats_info.get("friendCount", 0),
-            "likes": stats_info.get("heartCount", 0),
-            "videos": stats_info.get("videoCount", 0),
+            "language": merged_data["user"].get("language", "en"),
+            "is_verified": merged_data["user"].get("verified", False),
+            "is_private": merged_data["user"].get("secret", False),
+            
+            "followers": merged_data["stats"].get("followerCount", 0),
+            "following": merged_data["stats"].get("followingCount", 0),
+            "friends": merged_data["stats"].get("friendCount", 0),
+            "likes": merged_data["stats"].get("heartCount", 0),
+            "videos": merged_data["stats"].get("videoCount", 0),
+            
             "create_time_formatted": create_time,
             "modify_time_formatted": modify_time,
             "stories_active": stories,
-            "download_setting": user_info.get("downloadSetting", 0),
-            "has_store": user_info.get("hasCommerceEntry", False),
-            "sells_on_tiktok": user_info.get("withCommerceEntry", False),
-            "duet_setting": user_info.get("duetSetting", 0),
-            "publish_setting": user_info.get("publishSetting", 0),
-            "comment_setting": user_info.get("commentSetting", 0),
-            "account_relation": user_info.get("relation", 0),
-            "open_favorites": user_info.get("openFavorite", False),
-            "embed_ban": user_info.get("preventDownload", False),
-            "show_music": user_info.get("showMusic", False),
-            "show_questions": user_info.get("showQuestion", False),
-            "show_lists": user_info.get("showPlayList", False),
-            "suggest_link": user_info.get("needSuggest", False),
-            "expand_lists": user_info.get("expandPlayList", False),
-            "embed_permission": user_info.get("allowEmbed", True),
-            "ftc_compliant": user_info.get("ftc", False),
-            "fake_ads": user_info.get("isADVirtual", False),
-            "is_under_18": user_info.get("isUnderAge18", False)
+            
+            "download_setting": merged_data["user"].get("downloadSetting", 0),
+            "has_store": merged_data["user"].get("hasCommerceEntry", False),
+            "sells_on_tiktok": merged_data["user"].get("withCommerceEntry", False),
+            "duet_setting": merged_data["user"].get("duetSetting", 0),
+            "publish_setting": merged_data["user"].get("publishSetting", 0),
+            "comment_setting": merged_data["user"].get("commentSetting", 0),
+            "account_relation": merged_data["user"].get("relation", 0),
+            "open_favorites": merged_data["user"].get("openFavorite", False),
+            "embed_ban": merged_data["user"].get("preventDownload", False),
+            "show_music": merged_data["user"].get("showMusic", False),
+            "show_questions": merged_data["user"].get("showQuestion", False),
+            "show_lists": merged_data["user"].get("showPlayList", False),
+            "suggest_link": merged_data["user"].get("needSuggest", False),
+            "expand_lists": merged_data["user"].get("expandPlayList", False),
+            "embed_permission": merged_data["user"].get("allowEmbed", True),
+            "ftc_compliant": merged_data["user"].get("ftc", False),
+            "fake_ads": merged_data["user"].get("isADVirtual", False),
+            "is_under_18": merged_data["user"].get("isUnderAge18", False)
         }
         
         return result
