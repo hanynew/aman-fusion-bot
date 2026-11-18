@@ -3,5 +3,4 @@ Flask
 gunicorn
 pymongo==4.6.1
 certifi
-requests
-urllib3
+curl-cffi==0.7.1
