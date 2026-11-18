@@ -167,7 +167,8 @@ class TikTokFastEngine:
                     "embed_ban": user.get("preventDownload", False),
                     "show_music": user.get("showMusic", False),
                     "ftc_compliant": user.get("ftc", False),
-                    "fake_ads": user.get("isADVirtual", False)
+                    "fake_ads": user.get("isADVirtual", False),
+                    "is_under_18": user.get("isUnderAge18", False)
                 }
                 self.cache.set(username, result)
                 return result
@@ -251,6 +252,15 @@ def send_welcome(message):
 def handle_reply_keyboard(message):
     if message.text == "🚀 START": send_welcome(message)
     elif message.text == "🛠 الخدمات": send_main_menu(message.chat.id, message.from_user.first_name or "مستخدم")
+
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id in ADMIN_IDS:
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("📊 المشتركين", callback_data="stats"))
+        markup.row(InlineKeyboardButton("⛔️ حظر", callback_data="ban_user"), InlineKeyboardButton("🔓 فك حظر", callback_data="unban_user"))
+        markup.add(InlineKeyboardButton("📢 إذاعة", callback_data="broadcast"))
+        bot.reply_to(message, f"👑 <b>لوحة الإدارة</b>", parse_mode="HTML", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
@@ -363,8 +373,9 @@ def process_profile_link(message):
             d = engine_response["data"]
             language = get_language_name(d["language"])
             
-            # ترتيب عرض الدولة (توجيه المستخدم لزر الدولة إذا كانت مخفية)
+            # ترتيب عرض الدولة
             display_region = "اضغط على زر (دولة الحساب الاصلية) للبحث العميق 🔍" if not d["region"] or d["region"].upper() in ["ZZ", "US"] else f"تم الكشف مبدئياً: {d['region'].upper()}"
+            bio_link = "(None)"
 
             text = f"اسم المستخدم: <code>{d['username']}</code>\n"
             text += f"المعرف: <code>{d['user_id']}</code>\n"
@@ -396,6 +407,7 @@ def process_profile_link(message):
             text += f"عرض الموسيقى: {get_yes_no(d['show_music'])}\n"
             text += f"متوافق FTC: {get_yes_no(d['ftc_compliant'])}\n"
             text += f"البايو: {d['bio']}\n"
+            text += f"الرابط في البايو: {bio_link}"
 
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("دولة الحساب الاصلية", callback_data=f"info_country_{username}"))
