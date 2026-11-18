@@ -41,7 +41,6 @@ CHANNEL_USERNAME = "@AmanFusion"
 # 🛡️ المعمارية الهندسية: القواطع والذاكرة المؤقتة 🛡️
 # ==========================================
 class CircuitBreaker:
-    """قاطع دائرة لحماية البوت من التعليق إذا تعطلت سيرفرات تيك توك"""
     def __init__(self, threshold=5, cooldown=60):
         self.threshold = threshold
         self.cooldown = cooldown
@@ -52,7 +51,7 @@ class CircuitBreaker:
         if self.failures < self.threshold:
             return True
         if time.time() - self.opened_at > self.cooldown:
-            self.failures = self.threshold - 1 # نصف مفتوح للتجربة
+            self.failures = self.threshold - 1 
             return True
         return False
 
@@ -65,7 +64,6 @@ class CircuitBreaker:
             self.opened_at = time.time()
 
 class MemoryCache:
-    """ذاكرة مؤقتة فائقة السرعة لتقليل الضغط وتجنب الحظر"""
     def __init__(self, ttl=300):
         self.cache = {}
         self.ttl = ttl
@@ -88,8 +86,7 @@ class MemoryCache:
 class TikTokUltimateEngine:
     def __init__(self):
         self.breaker = CircuitBreaker()
-        self.cache = MemoryCache(ttl=300) # تخزين البيانات لمدة 5 دقائق
-        # المتصفح الوهمي
+        self.cache = MemoryCache(ttl=300) 
         self.impersonate = "chrome120"
         self.timeout = 15
 
@@ -104,7 +101,7 @@ class TikTokUltimateEngine:
             return "غير متوفر"
 
     def _fetch_direct_tiktok(self, username: str):
-        """الاستخراج العميق من قلب تيك توك بتمويه المتصفح"""
+        """الاستخراج العميق من قلب تيك توك بتمويه المتصفح (مع صيد الدولة)"""
         if not self.breaker.allow():
             raise RuntimeError("النظام في وضع التبريد (Cooldown)، جرب بعد دقيقة.")
         
@@ -114,12 +111,19 @@ class TikTokUltimateEngine:
             
             if res.status_code == 200:
                 self.breaker.success()
-                # صيد الـ JSON العميق المخفي في الصفحة
                 match = re.search(r'<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([^<]+)</script>', res.text)
                 if match:
                     json_data = json.loads(match.group(1))
                     state = json_data.get("__DEFAULT_SCOPE__", {}).get("webapp.user-detail", {})
-                    return state.get("userInfo", {})
+                    user_info = state.get("userInfo", {})
+                    
+                    if user_info and user_info.get("user"):
+                        # صيد الدولة من بيانات بيئة التطبيق المخفية
+                        app_context = json_data.get("__DEFAULT_SCOPE__", {}).get("webapp.app-context", {})
+                        if app_context and app_context.get("appContext", {}).get("region"):
+                             user_info["user"]["region"] = app_context["appContext"]["region"]
+                        
+                        return user_info
             elif res.status_code == 404:
                 self.breaker.success()
                 return {"error": "not_found"}
@@ -131,7 +135,7 @@ class TikTokUltimateEngine:
         return None
 
     def _fetch_tikwm_fallback(self, username: str):
-        """محرك داعم لجلب الستوري والدولة عبر تزوير البصمة"""
+        """محرك داعم لجلب الستوري والدولة كاحتياط أخير"""
         try:
             url = f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=20"
             res = cffi_requests.get(url, impersonate=self.impersonate, timeout=self.timeout)
@@ -142,17 +146,14 @@ class TikTokUltimateEngine:
         return []
 
     def extract_profile(self, username: str):
-        """المايسترو: يجمع البيانات ويرتبها"""
         username = username.lstrip("@").strip()
         
-        # فحص الذاكرة المؤقتة أولاً للسرعة القصوى
         cached_data = self.cache.get(username)
         if cached_data:
             return cached_data
 
         result = {"status": "error", "message": "حدث خطأ غير معروف", "data": None}
         
-        # 1. سحب البيانات الأولية
         raw_info = self._fetch_direct_tiktok(username)
         
         if not raw_info:
@@ -165,10 +166,9 @@ class TikTokUltimateEngine:
         user = raw_info.get("user", {})
         stats = raw_info.get("stats", {})
 
-        # 2. سحب الستوري والدولة الاحتياطية
         recent_posts = self._fetch_tikwm_fallback(username)
         
-        # صائد الدولة الدقيق
+        # التأكد من الدولة
         region = user.get("region", "")
         if not region or region.upper() in ["US", "ZZ"]:
             if recent_posts and len(recent_posts) > 0:
@@ -183,7 +183,6 @@ class TikTokUltimateEngine:
                 if v.get("is_story") == True or v.get("aweme_type") in [68, 69, 101] or v.get("duration") == 0:
                     stories.append(v)
 
-        # التواريخ
         create_time = self._normalize_date(user.get("createTime"))
         modify_time = self._normalize_date(user.get("nickNameModifyTime"))
         if create_time != "غير متوفر" and create_time == modify_time:
@@ -204,7 +203,7 @@ class TikTokUltimateEngine:
             
             "followers": stats.get("followerCount", 0),
             "following": stats.get("followingCount", 0),
-            "friends": stats.get("friendCount", 0), # متاح الآن مباشرة من تيك توك!
+            "friends": stats.get("friendCount", 0),
             "likes": stats.get("heartCount", 0),
             "videos": stats.get("videoCount", 0),
             
@@ -222,15 +221,20 @@ class TikTokUltimateEngine:
             "open_favorites": user.get("openFavorite", False),
             "embed_ban": user.get("preventDownload", False),
             "show_music": user.get("showMusic", False),
+            "show_questions": user.get("showQuestion", False),
+            "show_lists": user.get("showPlayList", False),
+            "suggest_link": user.get("needSuggest", False),
+            "expand_lists": user.get("expandPlayList", False),
+            "embed_permission": user.get("allowEmbed", True),
             "ftc_compliant": user.get("ftc", False),
+            "fake_ads": user.get("isADVirtual", False),
             "is_under_18": user.get("isUnderAge18", False)
         }
 
-        # حفظ النتيجة في الذاكرة المؤقتة
         self.cache.set(username, result)
         return result
 
-# تهيئة المحرك الخارق
+# تهيئة المحرك 
 engine = TikTokUltimateEngine()
 
 # ==========================================
@@ -373,7 +377,7 @@ def callback_query(call):
             else: bot.send_message(call.message.chat.id, "⚠️ خطأ في الاتصال.")
 
         elif action in ["followers", "following"]:
-            bot.answer_callback_query(call.id, "هذه الميزة معطلة حالياً لتحديثات الأمان.")
+            bot.answer_callback_query(call.id, "هذه الميزة تخضع للترقية حالياً.")
             return
 
         elif action == "story":
@@ -483,7 +487,13 @@ def process_profile_link(message):
             text += f"حظر التضمين: {get_yes_no(d['embed_ban'])}\n"
             text += f"• إعدادات الملف الشخصي\n"
             text += f"عرض الموسيقى: {get_yes_no(d['show_music'])}\n"
+            text += f"عرض الأسئلة: {get_yes_no(d['show_questions'])}\n"
+            text += f"عرض القوائم: {get_yes_no(d['show_lists'])}\n"
+            text += f"اقتراح ربط حساب: {get_yes_no(d['suggest_link'])}\n"
+            text += f"توسيع القوائم: {get_yes_no(d['expand_lists'])}\n"
+            text += f"إذن التضمين: {get_yes_no(d['embed_permission'])}\n"
             text += f"متوافق FTC: {get_yes_no(d['ftc_compliant'])}\n"
+            text += f"حساب إعلانات وهمي: {get_yes_no(d['fake_ads'])}\n"
             text += f"البايو: {d['bio']}\n"
             text += f"الرابط في البايو: {bio_link}"
 
