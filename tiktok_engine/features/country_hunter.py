@@ -4,7 +4,6 @@ from curl_cffi import requests as cffi_requests
 
 logger = logging.getLogger(__name__)
 
-# قاموس الدول المدمج (لجعل الملف مستقلاً تماماً)
 COUNTRIES = {
     "SA": ("المملكة العربية السعودية", "🇸🇦"), "AE": ("الإمارات العربية المتحدة", "🇦🇪"),
     "EG": ("مصر", "🇪🇬"), "YE": ("اليمن", "🇾🇪"), "IQ": ("العراق", "🇮🇶"),
@@ -18,13 +17,12 @@ COUNTRIES = {
 
 class CountryHunter:
     """
-    سكربت هندسي متخصص فقط في تتبع البصمة الجغرافية لحسابات تيك توك.
-    يعتمد على استراتيجية متعددة الطبقات (Multi-Layer Strategy).
+    قناص متوحش لجلب الدولة بأي ثمن.
+    يستخدم السحب المباشر (Direct API Fetch) لإجبار السيرفر على إرجاع الدولة.
     """
     def __init__(self):
         self.impersonate = "chrome120"
         self.timeout = 10
-        # جلب مفتاح RapidAPI من بيئة الرندر للطبقة الاحتياطية
         self.api_key = os.environ.get("RAPID_API_KEY", "d86d0f27e5msh3e53feb79423346p15c726jsn459f001aaa87")
 
     def _get_country_details(self, code: str):
@@ -36,8 +34,7 @@ class CountryHunter:
         username = username.lstrip("@").strip()
         region_code = None
 
-        # 🎯 الطبقة الأولى: اصطياد الدولة من سيرفرات الوسائط (أدق طريقة)
-        # المستخدم قد يضع بروكسي، لكن فيديوهاته السابقة تفضحه.
+        # 🎯 الطبقة الأولى: اصطياد الدولة من فيديوهات المستخدم
         try:
             url = f"https://www.tikwm.com/api/user/posts?unique_id={username}&count=3"
             res = cffi_requests.get(url, impersonate=self.impersonate, timeout=self.timeout)
@@ -46,31 +43,36 @@ class CountryHunter:
                 if videos and len(videos) > 0:
                     region_code = videos[0].get("region")
         except Exception as e:
-            logger.error(f"CountryHunter Layer 1 (Media) Error: {e}")
+            logger.error(f"CountryHunter Layer 1 Error: {e}")
 
-        # 🎯 الطبقة الثانية: البحث العميق عبر TokAPI (خطة بديلة)
+        # 🎯 الطبقة الثانية (الهجوم المباشر): الاستخراج الجبري عبر TokAPI
         if not region_code or region_code.upper() in ["US", "ZZ"]:
             try:
                 headers = {
+                    "content-type": "application/json",
                     "x-rapidapi-key": self.api_key,
                     "x-rapidapi-host": "tokapi-mobile-version.p.rapidapi.com"
                 }
-                url = "https://tokapi-mobile-version.p.rapidapi.com/v1/search/user"
-                params = {"keyword": username, "cursor": 0}
-                res = cffi_requests.get(url, headers=headers, params=params, impersonate=self.impersonate, timeout=self.timeout)
+                # استخدام المسار المباشر (POST) الذي يجلب البيانات العميقة جداً
+                url = f"https://tokapi-mobile-version.p.rapidapi.com/v1/user/{username}"
+                payload = {}
+                
+                res = cffi_requests.post(url, headers=headers, json=payload, impersonate=self.impersonate, timeout=self.timeout)
                 
                 if res.status_code == 200:
-                    user_list = res.json().get("user_list", [])
-                    for item in user_list:
-                        info = item.get("user_info", {})
-                        if info.get("unique_id", "").lower() == username.lower():
-                            region_code = info.get("region")
-                            break
+                    js_data = res.json()
+                    
+                    # استخراج الـ region من أي مكان ممكن في الـ JSON
+                    if js_data.get("user"):
+                        region_code = js_data["user"].get("region")
+                    elif js_data.get("user_info"):
+                        region_code = js_data["user_info"].get("region")
+                        
             except Exception as e:
-                logger.error(f"CountryHunter Layer 2 (API) Error: {e}")
+                logger.error(f"CountryHunter Layer 2 Error: {e}")
 
-        # 🎯 التقييم النهائي للنتيجة
-        if region_code and region_code.upper() not in ["ZZ"]:
+        # 🎯 التقييم النهائي
+        if region_code and region_code.upper() not in ["ZZ", "US", ""]:
             country_name, flag = self._get_country_details(region_code)
             return {
                 "status": "success", 
@@ -81,5 +83,5 @@ class CountryHunter:
         else:
             return {
                 "status": "error", 
-                "message": "لا يمكن تحديد الدولة بدقة (صاحب الحساب يخفي موقعه بـ VPN أو لم ينشر أي محتوى)."
+                "message": "لا يمكن تحديد الدولة بدقة (صاحب الحساب يخفي موقعه بـ VPN أو خوادم تيك توك تحجب دولته)."
             }
